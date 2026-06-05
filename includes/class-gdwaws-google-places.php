@@ -145,7 +145,73 @@ class GDWAWS_Google_Places {
             'editorial_summary'     => [
                 'overview' => $summary,
             ],
+            'photos'                => $place['photos'] ?? [],
         ];
+    }
+
+    /**
+     * Fetch a photo URL from the New Places API and sideload it into WordPress media library.
+     * Returns attachment ID or WP_Error.
+     */
+    public function fetch_featured_image( $photos, $post_id, $business_name ) {
+        if ( empty( $photos ) ) {
+            return new WP_Error( 'no_photos', 'No photos available.' );
+        }
+
+        // Get the first photo reference name
+        $photo_name = $photos[0]['name'] ?? '';
+        if ( empty( $photo_name ) ) {
+            return new WP_Error( 'no_photo_name', 'No photo reference found.' );
+        }
+
+        // Build the photo media URL
+        $photo_url = $this->base . '/' . $photo_name . '/media?' . http_build_query([
+            'maxHeightPx' => 800,
+            'maxWidthPx'  => 1200,
+            'key'         => $this->api_key,
+            'skipHttpRedirect' => 'true',
+        ]);
+
+        $response = wp_remote_get( $photo_url, [ 'timeout' => 20 ] );
+        if ( is_wp_error( $response ) ) return $response;
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        $image_uri = $body['photoUri'] ?? '';
+
+        if ( empty( $image_uri ) ) {
+            return new WP_Error( 'no_photo_uri', 'Could not get photo URI from Google.' );
+        }
+
+        // Get attribution if available
+        $attribution = '';
+        if ( ! empty( $photos[0]['authorAttributions'] ) ) {
+            $author = $photos[0]['authorAttributions'][0]['displayName'] ?? '';
+            if ( $author ) {
+                $attribution = 'Photo via Google Maps' . ( $author ? ' / ' . $author : '' );
+            }
+        }
+        if ( empty( $attribution ) ) {
+            $attribution = 'Photo via Google Maps';
+        }
+
+        // Sideload image into WordPress media library
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $filename  = sanitize_title( $business_name ) . '-' . time() . '.jpg';
+        $attachment_id = media_sideload_image( $image_uri, $post_id, $attribution, 'id' );
+
+        if ( is_wp_error( $attachment_id ) ) return $attachment_id;
+
+        // Add attribution as caption
+        wp_update_post([
+            'ID'           => $attachment_id,
+            'post_excerpt' => $attribution,
+            'post_title'   => sanitize_text_field( $business_name ),
+        ]);
+
+        return $attachment_id;
     }
 
     /**

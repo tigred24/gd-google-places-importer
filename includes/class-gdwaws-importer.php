@@ -157,6 +157,20 @@ class GDWAWS_Importer {
             update_post_meta( $post_id, $key, $value );
         }
 
+        // Import featured image from Google Photos
+        $photos = $details['photos'] ?? [];
+        if ( ! empty( $photos ) ) {
+            $attachment_id = $this->places_api->fetch_featured_image( $photos, $post_id, $name );
+            if ( is_wp_error( $attachment_id ) ) {
+                $this->log_entry( 'info', "{$name} — No featured image: " . $attachment_id->get_error_message() );
+            } else {
+                set_post_thumbnail( $post_id, $attachment_id );
+                $this->log_entry( 'info', "{$name} — Featured image set (Attachment ID: {$attachment_id})" );
+            }
+        } else {
+            $this->log_entry( 'info', "{$name} — No photos available from Google." );
+        }
+
         // Log success
         $this->db_log( $place_id, $name, $post_id, 'imported', 'Successfully imported.' );
         $this->log_entry( 'success', "{$name} — Imported (Post ID: {$post_id})" );

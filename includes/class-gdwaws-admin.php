@@ -377,6 +377,10 @@ class GDWAWS_Admin {
         check_ajax_referer( 'gdwaws_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
 
+        // Extend limits for long-running import operations
+        @set_time_limit( 300 );
+        @ini_set( 'memory_limit', '256M' );
+
         $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
         $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
         $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
@@ -393,6 +397,10 @@ class GDWAWS_Admin {
     public function ajax_confirm_import() {
         check_ajax_referer( 'gdwaws_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+
+        // Extend limits for long-running import operations
+        @set_time_limit( 300 );
+        @ini_set( 'memory_limit', '256M' );
 
         $post_type = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
         $raw_items = isset( $_POST['items'] ) ? (array) $_POST['items'] : [];

@@ -29,13 +29,18 @@ jQuery(function ($) {
         $('#gdwaws-log-wrap').hide();
         previewData = [];
 
-        $.post(GDWAWS.ajax_url, {
-            action: 'gdwaws_preview_import',
-            nonce: GDWAWS.nonce,
-            region: region, post_type: post_type,
-            categories: categories,
-            city_filter: city_filter,
-        }, function (res) {
+        $.ajax({
+            url: GDWAWS.ajax_url,
+            type: 'POST',
+            timeout: 300000, // 5 minutes
+            data: {
+                action: 'gdwaws_preview_import',
+                nonce: GDWAWS.nonce,
+                region: region, post_type: post_type,
+                categories: categories,
+                city_filter: city_filter,
+            },
+            success: function (res) {
             $btn.prop('disabled', false);
             $('#gdwaws-spinner').hide();
 
@@ -52,10 +57,15 @@ jQuery(function ($) {
 
             renderPreview(previews, post_type);
 
-        }).fail(function () {
-            $btn.prop('disabled', false);
-            $('#gdwaws-spinner').hide();
-            alert('AJAX request failed. Check your server logs.');
+            },
+            error: function (xhr, status) {
+                $btn.prop('disabled', false);
+                $('#gdwaws-spinner').hide();
+                var msg = status === 'timeout'
+                    ? 'Request timed out. Try selecting fewer categories at once.'
+                    : 'AJAX request failed (status: ' + status + '). Check your server error logs.';
+                alert('❌ ' + msg);
+            }
         });
     });
 
@@ -145,12 +155,17 @@ jQuery(function ($) {
         $('#gdwaws-log-wrap').show();
         $('#gdwaws-log').html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' + items.length + ' listings...</span></div>');
 
-        $.post(GDWAWS.ajax_url, {
-            action:    'gdwaws_confirm_import',
-            nonce:     GDWAWS.nonce,
-            post_type: post_type,
-            items:     items,
-        }, function (res) {
+        $.ajax({
+            url: GDWAWS.ajax_url,
+            type: 'POST',
+            timeout: 300000,
+            data: {
+                action:    'gdwaws_confirm_import',
+                nonce:     GDWAWS.nonce,
+                post_type: post_type,
+                items:     items,
+            },
+            success: function (res) {
             $('#gdwaws-import-spinner').hide();
             updateConfirmButton();
 
@@ -172,9 +187,15 @@ jQuery(function ($) {
 
             $('#gdwaws-log')[0].scrollTop = $('#gdwaws-log')[0].scrollHeight;
 
-        }).fail(function () {
-            $('#gdwaws-import-spinner').hide();
-            $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ AJAX request failed.</div>');
+            },
+            error: function (xhr, status) {
+                $('#gdwaws-import-spinner').hide();
+                updateConfirmButton();
+                var msg = status === 'timeout'
+                    ? 'Import timed out. Try importing fewer listings at once.'
+                    : 'AJAX request failed (status: ' + status + '). Check your server error logs.';
+                $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ ' + escHtml(msg) + '</div>');
+            }
         });
     }
 

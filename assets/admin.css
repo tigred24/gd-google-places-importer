@@ -184,3 +184,22 @@
 .gdwaws-biz-name  { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
 .gdwaws-biz-phone { font-size: 11px; color: #666; }
 .gdwaws-biz-site  { font-size: 11px; color: #2271b1; word-break: break-all; }
+
+/* Mode Toggle */
+.gdwaws-mode-btn {
+    padding: 8px 18px;
+    font-size: 13px;
+    border: none;
+    background: #f0f0f0;
+    color: #555;
+    cursor: pointer;
+    border-right: 1px solid #ddd;
+    transition: background 0.15s, color 0.15s;
+}
+.gdwaws-mode-btn:last-child { border-right: none; }
+.gdwaws-mode-btn:hover { background: #e0e0e0; }
+.gdwaws-mode-btn.gdwaws-mode-active {
+    background: #2271b1;
+    color: #fff;
+    font-weight: 600;
+}

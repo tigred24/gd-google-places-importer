@@ -26,13 +26,15 @@ class GDWAWS_Google_Places {
      * e.g. "restaurants in Goliad, TX"
      * Paginates automatically up to 3 pages (max 60 results).
      */
-    public function text_search( $location, $type = 'establishment' ) {
+    public function text_search( $location, $type = 'establishment', $custom_query = '' ) {
         if ( empty( $this->api_key ) ) {
             return new WP_Error( 'no_api_key', 'Google API key not set.' );
         }
 
-        // Build a natural language query: "restaurants in Goliad, TX"
-        if ( $type && $type !== 'establishment' ) {
+        // Use custom query if provided, otherwise build from type + location
+        if ( ! empty( $custom_query ) ) {
+            $query = $custom_query;
+        } elseif ( $type && $type !== 'establishment' ) {
             $type_label = GDWAWS_Settings::google_place_types()[ $type ] ?? $type;
             $query      = $type_label . ' in ' . $location;
         } else {

@@ -55,6 +55,27 @@ class GDWAWS_Importer {
     }
 
     /**
+     * Preview a single place by name search.
+     */
+    public function preview_by_name( $place_name, $region, $post_type = 'gd_place' ) {
+        $results = $this->places_api->text_search( $region, 'establishment', $place_name . ' ' . $region );
+        if ( is_wp_error( $results ) ) return [];
+
+        $previews = [];
+        $seen     = [];
+
+        foreach ( $results as $biz ) {
+            $place_id = $biz['place_id'] ?? $biz['id'] ?? '';
+            if ( empty( $place_id ) || isset( $seen[ $place_id ] ) ) continue;
+            $seen[ $place_id ] = true;
+            $preview = $this->build_preview( $place_id, $post_type );
+            if ( $preview ) $previews[] = $preview;
+        }
+
+        return $previews;
+    }
+
+    /**
      * Fetch full details for one place and build a preview record.
      */
     private function build_preview( $place_id, $post_type ) {

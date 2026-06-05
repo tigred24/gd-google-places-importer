@@ -3,6 +3,25 @@ jQuery(function ($) {
 
     var previewData = []; // Stores full preview objects keyed by place_id
 
+    // ── Search Mode Toggle ───────────────────────────────────────
+    var searchMode = 'category';
+
+    $('#gdwaws-mode-category').on('click', function () {
+        searchMode = 'category';
+        $(this).addClass('gdwaws-mode-active');
+        $('#gdwaws-mode-name').removeClass('gdwaws-mode-active');
+        $('#gdwaws-row-categories, #gdwaws-row-city-filter').show();
+        $('#gdwaws-row-name-search').hide();
+    });
+
+    $('#gdwaws-mode-name').on('click', function () {
+        searchMode = 'name';
+        $(this).addClass('gdwaws-mode-active');
+        $('#gdwaws-mode-category').removeClass('gdwaws-mode-active');
+        $('#gdwaws-row-categories, #gdwaws-row-city-filter').hide();
+        $('#gdwaws-row-name-search').show();
+    });
+
     // ── Select / Deselect All Categories ────────────────────────
     $('#gdwaws-select-all-cats').on('click', function () {
         $('.gdwaws-cat-check').prop('checked', true);
@@ -16,11 +35,13 @@ jQuery(function ($) {
         var region      = $('#gdwaws_region').val().trim();
         var post_type   = $('#gdwaws_post_type').val();
         var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
+        var place_name  = $('#gdwaws_place_name').val().trim();
         var categories  = [];
         $('.gdwaws-cat-check:checked').each(function () { categories.push($(this).val()); });
 
         if (!region) { alert('Please enter a region/location.'); return; }
-        if (categories.length === 0) { alert('Please select at least one category.'); return; }
+        if (searchMode === 'name' && !place_name) { alert('Please enter a business name to search for.'); return; }
+        if (searchMode === 'category' && categories.length === 0) { alert('Please select at least one category.'); return; }
 
         var $btn = $(this);
         $btn.prop('disabled', true);
@@ -32,12 +53,15 @@ jQuery(function ($) {
         $.ajax({
             url: GDWAWS.ajax_url,
             type: 'POST',
-            timeout: 300000, // 5 minutes
+            timeout: 300000,
             data: {
-                action: 'gdwaws_preview_import',
-                nonce: GDWAWS.nonce,
-                region: region, post_type: post_type,
-                categories: categories,
+                action:      'gdwaws_preview_import',
+                nonce:       GDWAWS.nonce,
+                region:      region,
+                post_type:   post_type,
+                search_mode: searchMode,
+                place_name:  place_name,
+                categories:  categories,
                 city_filter: city_filter,
             },
             success: function (res) {

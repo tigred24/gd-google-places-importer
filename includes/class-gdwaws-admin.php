@@ -111,12 +111,23 @@ class GDWAWS_Admin {
 
             <div class="gdwaws-card">
                 <h2>Run Import</h2>
+
+                <!-- Search Mode Toggle -->
+                <div class="gdwaws-mode-toggle" style="display:flex; gap:0; margin-bottom:20px; border:1px solid #ddd; border-radius:4px; overflow:hidden; width:fit-content;">
+                    <button type="button" id="gdwaws-mode-category" class="gdwaws-mode-btn gdwaws-mode-active">
+                        📋 Browse by Category
+                    </button>
+                    <button type="button" id="gdwaws-mode-name" class="gdwaws-mode-btn">
+                        🔎 Search by Name
+                    </button>
+                </div>
+
                 <table class="form-table gdwaws-form-table">
                     <tr>
                         <th><label for="gdwaws_region">Region / Location</label></th>
                         <td>
                             <input type="text" id="gdwaws_region" class="regular-text" value="<?php echo esc_attr( $default_region ); ?>" placeholder="e.g. Goliad, TX" />
-                            <p class="description">Enter a city and state (e.g. <code>Goliad, TX</code>). Google will search for matching businesses in that city.</p>
+                            <p class="description">Enter a city and state (e.g. <code>Goliad, TX</code>).</p>
                         </td>
                     </tr>
                     <tr>
@@ -130,7 +141,9 @@ class GDWAWS_Admin {
                             <p class="description">Select which GeoDirectory post type to import listings into.</p>
                         </td>
                     </tr>
-                    <tr>
+
+                    <!-- Category mode fields -->
+                    <tr id="gdwaws-row-categories">
                         <th>Google Place Categories</th>
                         <td>
                             <div id="gdwaws-category-wrap">
@@ -147,11 +160,11 @@ class GDWAWS_Admin {
                                         </label>
                                     <?php endforeach; ?>
                                 </div>
-                                <p class="description" style="margin-top:6px;">Select one or more Google place categories to import. Each selected category will be searched separately.</p>
+                                <p class="description" style="margin-top:6px;">Select one or more Google place categories to import.</p>
                             </div>
                         </td>
                     </tr>
-                    <tr>
+                    <tr id="gdwaws-row-city-filter">
                         <th>City Filter</th>
                         <td>
                             <label>
@@ -159,6 +172,15 @@ class GDWAWS_Admin {
                                 Only import businesses with the city name in their address
                             </label>
                             <p class="description">Filters out any results Google returns that are outside your target city.</p>
+                        </td>
+                    </tr>
+
+                    <!-- Name search mode fields -->
+                    <tr id="gdwaws-row-name-search" style="display:none;">
+                        <th><label for="gdwaws_place_name">Business Name</label></th>
+                        <td>
+                            <input type="text" id="gdwaws_place_name" class="regular-text" placeholder="e.g. Goliad County Courthouse" />
+                            <p class="description">Enter the name of a specific business or place to search for. The region above will be appended to narrow results.</p>
                         </td>
                     </tr>
                 </table>
@@ -383,13 +405,20 @@ class GDWAWS_Admin {
 
         $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
         $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
+        $search_mode = sanitize_text_field( $_POST['search_mode'] ?? 'category' );
+        $place_name  = sanitize_text_field( $_POST['place_name'] ?? '' );
         $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
         $city_filter = sanitize_text_field( $_POST['city_filter'] ?? '' );
 
         GDWAWS_Settings::set( 'geodir_post_type', $post_type );
 
         $importer = new GDWAWS_Importer();
-        $previews = $importer->preview_multi( $region, $categories, $city_filter, $post_type );
+
+        if ( $search_mode === 'name' && ! empty( $place_name ) ) {
+            $previews = $importer->preview_by_name( $place_name, $region, $post_type );
+        } else {
+            $previews = $importer->preview_multi( $region, $categories, $city_filter, $post_type );
+        }
 
         wp_send_json_success( [ 'previews' => $previews ] );
     }

@@ -13,9 +13,36 @@ class GDWAWS_Importer {
     }
 
     /**
+     * Run imports for multiple categories, combining results.
+     */
+    public function run_multi( $region, $categories, $radius = 8000, $city_filter = '', $post_type = 'gd_place' ) {
+        $this->log = [];
+
+        if ( empty( $categories ) ) {
+            $this->log_entry( 'error', 'No categories selected.' );
+            return $this->log;
+        }
+
+        $this->log_entry( 'info', "Importing into post type: {$post_type}" );
+        $this->log_entry( 'info', count( $categories ) . ' categories selected: ' . implode( ', ', $categories ) );
+
+        foreach ( $categories as $category ) {
+            $this->log_entry( 'info', "─── Starting category: {$category} ───" );
+            $this->run( $region, $category, $radius, $city_filter, $post_type );
+        }
+
+        $this->log_entry( 'info', '✅ All categories complete.' );
+        return $this->log;
+    }
+
+    /**
      * Run a full import for a region + type.
      */
-    public function run( $region, $type = 'establishment', $radius = 8000, $city_filter = '' ) {
+    public function run( $region, $type = 'establishment', $radius = 8000, $city_filter = '', $post_type = '' ) {
+        // Use saved post type if not passed
+        if ( empty( $post_type ) ) {
+            $post_type = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
+        }
         $this->log = [];
 
         // Extract city name from region string for filtering (e.g. "Goliad, TX" → "Goliad")
@@ -53,7 +80,7 @@ class GDWAWS_Importer {
         }
 
         foreach ( $businesses as $biz ) {
-            $this->import_single( $biz );
+            $this->import_single( $biz, $post_type );
         }
 
         $this->log_entry( 'info', 'Import complete.' );
@@ -63,11 +90,14 @@ class GDWAWS_Importer {
     /**
      * Import a single business from a nearby search result.
      */
-    private function import_single( $biz ) {
+    private function import_single( $biz, $post_type = '' ) {
         global $wpdb;
         $table    = $wpdb->prefix . 'gdwaws_import_log';
         $place_id = $biz['place_id'] ?? $biz['id'] ?? '';
         $name     = $biz['name'] ?? $biz['displayName']['text'] ?? 'Unknown';
+        if ( empty( $post_type ) ) {
+            $post_type = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
+        }
 
         // Skip if already imported
         $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $table WHERE place_id = %s", $place_id ) );
@@ -110,19 +140,20 @@ class GDWAWS_Importer {
         // Parse address
         $address = $this->places_api->parse_address( $details );
 
-        // Map Google types to GeoDirectory category
-        $cat_id = $this->map_category( $details['types'] ?? [] );
-
         // Build post data
         $post_data = [
             'post_title'   => sanitize_text_field( $name ),
             'post_content' => wp_kses_post( $description ),
             'post_status'  => GDWAWS_Settings::get( 'post_status', 'draft' ),
-            'post_type'    => GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' ),
+            'post_type'    => $post_type,
         ];
 
+        // GeoDirectory category taxonomy is based on post type name
+        $cat_taxonomy = $post_type . 'category';
+        $cat_id = $this->map_category( $details['types'] ?? [], $cat_taxonomy );
+
         if ( $cat_id ) {
-            $post_data['tax_input'] = [ 'gd_placecategory' => [ $cat_id ] ];
+            $post_data['tax_input'] = [ $cat_taxonomy => [ $cat_id ] ];
         }
 
         $post_id = wp_insert_post( $post_data, true );
@@ -179,7 +210,7 @@ class GDWAWS_Importer {
     /**
      * Map Google place types to a GeoDirectory category ID.
      */
-    private function map_category( $types ) {
+    private function map_category( $types, $taxonomy = 'gd_placecategory' ) {
         $map = [
             'restaurant'              => 'Restaurants',
             'food'                    => 'Restaurants',
@@ -207,11 +238,11 @@ class GDWAWS_Importer {
         foreach ( $types as $type ) {
             if ( isset( $map[ $type ] ) ) {
                 $cat_name = $map[ $type ];
-                $term = get_term_by( 'name', $cat_name, 'gd_placecategory' );
+                $term = get_term_by( 'name', $cat_name, $taxonomy );
                 if ( $term ) return $term->term_id;
 
                 // Create it if it doesn't exist
-                $new_term = wp_insert_term( $cat_name, 'gd_placecategory' );
+                $new_term = wp_insert_term( $cat_name, $taxonomy );
                 if ( ! is_wp_error( $new_term ) ) return $new_term['term_id'];
             }
         }

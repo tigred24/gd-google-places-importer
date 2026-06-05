@@ -39,15 +39,36 @@ class GDWAWS_Admin {
     }
 
     public function render_dashboard() {
-        $counts       = GDWAWS_Importer::get_counts();
-        $place_types  = GDWAWS_Settings::google_place_types();
+        $counts         = GDWAWS_Importer::get_counts();
+        $place_types    = GDWAWS_Settings::google_place_types();
         $default_region = GDWAWS_Settings::get( 'default_region', 'Goliad, TX' );
-        $default_type   = GDWAWS_Settings::get( 'default_category', 'establishment' );
         $import_limit   = GDWAWS_Settings::get( 'import_limit', 20 );
         $default_radius = GDWAWS_Settings::get( 'search_radius', 8000 );
+        $default_pt     = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
+
+        // Get all GeoDirectory custom post types
+        $gd_post_types = [];
+        if ( function_exists( 'geodir_get_posttypes' ) ) {
+            $gd_pts = geodir_get_posttypes( 'object' );
+            foreach ( $gd_pts as $pt ) {
+                $gd_post_types[ $pt->name ] = $pt->label;
+            }
+        } else {
+            // Fallback — get any post types with geodirectory support
+            $args = [ 'public' => true, '_builtin' => false ];
+            $pts  = get_post_types( $args, 'objects' );
+            foreach ( $pts as $pt ) {
+                if ( strpos( $pt->name, 'gd_' ) === 0 ) {
+                    $gd_post_types[ $pt->name ] = $pt->label;
+                }
+            }
+            if ( empty( $gd_post_types ) ) {
+                $gd_post_types[ 'gd_place' ] = 'Places';
+            }
+        }
         ?>
         <div class="wrap gdwaws-wrap">
-            <h1>🗺️ GeoDirectory WAWS Business Importer</h1>
+            <h1>🗺️ GD Google Places Importer</h1>
             <p class="gdwaws-subtitle">Import business listings from Google Places with AI-generated descriptions via Claude.</p>
 
             <div class="gdwaws-stats">
@@ -72,24 +93,46 @@ class GDWAWS_Admin {
                         <th><label for="gdwaws_region">Region / Location</label></th>
                         <td>
                             <input type="text" id="gdwaws_region" class="regular-text" value="<?php echo esc_attr( $default_region ); ?>" placeholder="e.g. Goliad, TX" />
-                            <p class="description">City, address, or area to search within (~5 mile radius)</p>
+                            <p class="description">City, address, or area to search within the selected radius</p>
                         </td>
                     </tr>
                     <tr>
-                        <th><label for="gdwaws_type">Business Type</label></th>
+                        <th><label for="gdwaws_post_type">Post Type</label></th>
                         <td>
-                            <select id="gdwaws_type">
-                                <?php foreach ( $place_types as $value => $label ) : ?>
-                                    <option value="<?php echo esc_attr( $value ); ?>" <?php selected( $value, $default_type ); ?>><?php echo esc_html( $label ); ?></option>
+                            <select id="gdwaws_post_type">
+                                <?php foreach ( $gd_post_types as $pt_name => $pt_label ) : ?>
+                                    <option value="<?php echo esc_attr( $pt_name ); ?>" <?php selected( $pt_name, $default_pt ); ?>><?php echo esc_html( $pt_label ); ?> (<?php echo esc_html( $pt_name ); ?>)</option>
                                 <?php endforeach; ?>
                             </select>
+                            <p class="description">Select which GeoDirectory post type to import listings into.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Google Place Categories</th>
+                        <td>
+                            <div id="gdwaws-category-wrap">
+                                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                                    <button type="button" class="button" id="gdwaws-select-all-cats">Select All</button>
+                                    <button type="button" class="button" id="gdwaws-deselect-all-cats">Deselect All</button>
+                                </div>
+                                <div id="gdwaws-category-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:6px; max-height:300px; overflow-y:auto; border:1px solid #ddd; padding:12px; border-radius:4px; background:#fafafa;">
+                                    <?php foreach ( $place_types as $value => $label ) :
+                                        if ( $value === 'establishment' ) continue; ?>
+                                        <label style="display:flex; align-items:center; gap:6px; font-size:13px; cursor:pointer;">
+                                            <input type="checkbox" class="gdwaws-cat-check" value="<?php echo esc_attr( $value ); ?>" checked />
+                                            <?php echo esc_html( $label ); ?>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                                <p class="description" style="margin-top:6px;">Select one or more Google place categories to import. Each selected category will be searched separately.</p>
+                            </div>
                         </td>
                     </tr>
                     <tr>
                         <th><label for="gdwaws_limit">Max Listings</label></th>
                         <td>
                             <input type="number" id="gdwaws_limit" class="small-text" value="<?php echo esc_attr( $import_limit ); ?>" min="1" max="60" />
-                            <p class="description">Max 60 per run (Google Places limit per search)</p>
+                            <p class="description">Max per category per run (Google Places limit is 60 per search)</p>
                         </td>
                     </tr>
                     <tr>
@@ -121,7 +164,7 @@ class GDWAWS_Admin {
                                 <input type="checkbox" id="gdwaws_city_filter" value="1" checked />
                                 Only import businesses located in the city entered above
                             </label>
-                            <p class="description">When checked, results from surrounding areas outside your city will be skipped. Uncheck to import everything within the radius regardless of city.</p>
+                            <p class="description">When checked, results outside your city will be skipped.</p>
                         </td>
                     </tr>
                 </table>
@@ -303,16 +346,18 @@ class GDWAWS_Admin {
         if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
 
         $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
-        $type        = sanitize_text_field( $_POST['type'] ?? 'establishment' );
+        $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
+        $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
         $limit       = intval( $_POST['limit'] ?? 20 );
         $radius      = intval( $_POST['radius'] ?? 8000 );
         $city_filter = ! empty( $_POST['city_filter'] ) ? sanitize_text_field( $_POST['city_filter'] ) : '';
 
         GDWAWS_Settings::set( 'import_limit', $limit );
         GDWAWS_Settings::set( 'search_radius', $radius );
+        GDWAWS_Settings::set( 'geodir_post_type', $post_type );
 
         $importer = new GDWAWS_Importer();
-        $log      = $importer->run( $region, $type, $radius, $city_filter );
+        $log      = $importer->run_multi( $region, $categories, $radius, $city_filter, $post_type );
 
         wp_send_json_success( [ 'log' => $log ] );
     }

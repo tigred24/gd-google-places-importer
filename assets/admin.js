@@ -1,16 +1,36 @@
 /* GD Google Places Importer - Admin JS */
 jQuery(function ($) {
 
+    // ── Select / Deselect All Categories ────────────────────────
+    $('#gdwaws-select-all-cats').on('click', function () {
+        $('.gdwaws-cat-check').prop('checked', true);
+    });
+
+    $('#gdwaws-deselect-all-cats').on('click', function () {
+        $('.gdwaws-cat-check').prop('checked', false);
+    });
+
     // ── Run Import ──────────────────────────────────────────────
     $('#gdwaws-run-import').on('click', function () {
         var region      = $('#gdwaws_region').val().trim();
-        var type        = $('#gdwaws_type').val();
+        var post_type   = $('#gdwaws_post_type').val();
         var limit       = $('#gdwaws_limit').val();
         var radius      = $('#gdwaws_radius').val();
         var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
 
+        // Collect all checked categories
+        var categories = [];
+        $('.gdwaws-cat-check:checked').each(function () {
+            categories.push($(this).val());
+        });
+
         if (!region) {
             alert('Please enter a region/location.');
+            return;
+        }
+
+        if (categories.length === 0) {
+            alert('Please select at least one Google Place category.');
             return;
         }
 
@@ -22,13 +42,14 @@ jQuery(function ($) {
         $btn.prop('disabled', true);
         $spinner.show();
         $logWrap.show();
-        $log.html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">Starting import for: ' + escHtml(region) + ' / ' + escHtml(type) + '...</span></div>');
+        $log.html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">Starting import: ' + escHtml(region) + ' → ' + escHtml(post_type) + ' (' + categories.length + ' categories)...</span></div>');
 
         $.post(GDWAWS.ajax_url, {
             action:      'gdwaws_run_import',
             nonce:       GDWAWS.nonce,
             region:      region,
-            type:        type,
+            post_type:   post_type,
+            categories:  categories,
             limit:       limit,
             radius:      radius,
             city_filter: city_filter,

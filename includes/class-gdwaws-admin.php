@@ -410,19 +410,20 @@ class GDWAWS_Admin {
         foreach ( $raw_items as $item ) {
             if ( ! is_array( $item ) ) continue;
             $items[] = [
-                'place_id'       => sanitize_text_field( $item['place_id'] ?? '' ),
-                'name'           => sanitize_text_field( $item['name'] ?? '' ),
-                'description'    => wp_kses_post( $item['description'] ?? '' ),
-                'address'        => sanitize_text_field( $item['address'] ?? '' ),
-                'address_parsed' => array_map( 'sanitize_text_field', (array) ( $item['address_parsed'] ?? [] ) ),
-                'phone'          => sanitize_text_field( $item['phone'] ?? '' ),
-                'website'        => esc_url_raw( $item['website'] ?? '' ),
-                'rating'         => sanitize_text_field( $item['rating'] ?? '' ),
-                'lat'            => sanitize_text_field( $item['lat'] ?? '' ),
-                'lng'            => sanitize_text_field( $item['lng'] ?? '' ),
-                'hours'          => array_map( 'sanitize_text_field', (array) ( $item['hours'] ?? [] ) ),
-                'types'          => array_map( 'sanitize_text_field', (array) ( $item['types'] ?? [] ) ),
-                'photos'         => (array) ( $item['photos'] ?? [] ),
+                'place_id'          => sanitize_text_field( $item['place_id'] ?? '' ),
+                'name'              => sanitize_text_field( $item['name'] ?? '' ),
+                'description'       => wp_kses_post( $item['description'] ?? '' ),
+                'description_source'=> sanitize_text_field( $item['description_source'] ?? 'edited' ),
+                'address'           => sanitize_text_field( $item['address'] ?? '' ),
+                'address_parsed'    => array_map( 'sanitize_text_field', (array) ( $item['address_parsed'] ?? [] ) ),
+                'phone'             => sanitize_text_field( $item['phone'] ?? '' ),
+                'website'           => esc_url_raw( $item['website'] ?? '' ),
+                'rating'            => sanitize_text_field( $item['rating'] ?? '' ),
+                'lat'               => sanitize_text_field( $item['lat'] ?? '' ),
+                'lng'               => sanitize_text_field( $item['lng'] ?? '' ),
+                'hours'             => array_map( 'sanitize_text_field', (array) ( $item['hours'] ?? [] ) ),
+                'types'             => array_map( 'sanitize_text_field', (array) ( $item['types'] ?? [] ) ),
+                'photos'            => (array) ( $item['photos'] ?? [] ),
             ];
         }
 

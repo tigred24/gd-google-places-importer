@@ -87,18 +87,9 @@ class GDWAWS_Importer {
             $duplicate_reason = 'Listing with this name already exists (Post #' . $existing_post . ')';
         }
 
-        // Generate description
-        $use_ai         = GDWAWS_Settings::get( 'use_claude', '1' ) === '1' && ! empty( GDWAWS_Settings::get( 'anthropic_api_key' ) );
+        // Description — use Google summary as placeholder only, AI generated at confirm time
         $google_summary = $details['editorial_summary']['overview'] ?? '';
-
-        if ( $use_ai ) {
-            $description = $this->claude->generate_description( $details );
-            if ( is_wp_error( $description ) ) {
-                $description = $google_summary;
-            }
-        } else {
-            $description = $google_summary;
-        }
+        $description    = $google_summary; // Editable in preview; AI runs at confirm if enabled
 
         // Map category
         $cat_taxonomy = $post_type . 'category';
@@ -112,22 +103,23 @@ class GDWAWS_Importer {
         $address_parsed = $this->places_api->parse_address( $details );
 
         return [
-            'place_id'         => $place_id,
-            'name'             => $name,
-            'address'          => $address,
-            'address_parsed'   => $address_parsed,
-            'phone'            => $details['formatted_phone_number'] ?? '',
-            'website'          => $details['website'] ?? '',
-            'rating'           => $details['rating'] ?? '',
-            'category'         => $cat_name,
-            'description'      => (string) $description,
-            'hours'            => $details['opening_hours']['weekday_text'] ?? [],
-            'lat'              => $details['geometry']['location']['lat'] ?? '',
-            'lng'              => $details['geometry']['location']['lng'] ?? '',
-            'types'            => $details['types'] ?? [],
-            'photos'           => $details['photos'] ?? [],
-            'is_duplicate'     => ! empty( $duplicate_reason ),
-            'duplicate_reason' => $duplicate_reason,
+            'place_id'           => $place_id,
+            'name'               => $name,
+            'address'            => $address,
+            'address_parsed'     => $address_parsed,
+            'phone'              => $details['formatted_phone_number'] ?? '',
+            'website'            => $details['website'] ?? '',
+            'rating'             => $details['rating'] ?? '',
+            'category'           => $cat_name,
+            'description'        => (string) $description,
+            'description_source' => empty( $description ) ? 'none' : 'google',
+            'hours'              => $details['opening_hours']['weekday_text'] ?? [],
+            'lat'                => $details['geometry']['location']['lat'] ?? '',
+            'lng'                => $details['geometry']['location']['lng'] ?? '',
+            'types'              => $details['types'] ?? [],
+            'photos'             => $details['photos'] ?? [],
+            'is_duplicate'       => ! empty( $duplicate_reason ),
+            'duplicate_reason'   => $duplicate_reason,
         ];
     }
 
@@ -179,6 +171,29 @@ class GDWAWS_Importer {
         }
 
         $description  = wp_kses_post( $item['description'] ?? '' );
+
+        // If description is blank or still just a Google placeholder and AI is enabled, generate now
+        $use_ai = GDWAWS_Settings::get( 'use_claude', '1' ) === '1' && ! empty( GDWAWS_Settings::get( 'anthropic_api_key' ) );
+        $desc_source = $item['description_source'] ?? 'edited';
+
+        if ( $use_ai && ( empty( $description ) || $desc_source === 'google' || $desc_source === 'none' ) ) {
+            // Rebuild a minimal details array for Claude from the item data
+            $details_for_claude = [
+                'name'                   => $name,
+                'formatted_address'      => $item['address'] ?? '',
+                'formatted_phone_number' => $item['phone'] ?? '',
+                'website'                => $item['website'] ?? '',
+                'rating'                 => $item['rating'] ?? '',
+                'types'                  => $item['types'] ?? [],
+                'opening_hours'          => [ 'weekday_text' => $item['hours'] ?? [] ],
+                'editorial_summary'      => [ 'overview' => $description ],
+            ];
+            $ai_desc = $this->claude->generate_description( $details_for_claude );
+            if ( ! is_wp_error( $ai_desc ) && ! empty( $ai_desc ) ) {
+                $description = wp_kses_post( $ai_desc );
+                $this->log_entry( 'info', "{$name} — AI description generated." );
+            }
+        }
         $address      = $item['address_parsed'] ?? [];
         $cat_taxonomy = $post_type . 'category';
         $types        = $item['types'] ?? [];

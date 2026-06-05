@@ -91,12 +91,19 @@ jQuery(function ($) {
                 ? '<span class="gdwaws-status-dup">⚠ Duplicate</span><div class="gdwaws-status-info">' + escHtml(p.duplicate_reason) + '</div>'
                 : '<span class="gdwaws-status-ok">✓ New</span>';
 
+            var useClaude = false; // We'll set this from a data attr below
+            var descNote  = p.description_source === 'none'
+                ? '<div style="font-size:11px;color:#888;margin-top:4px;">⚡ AI description will be generated on import</div>'
+                : p.description_source === 'google'
+                ? '<div style="font-size:11px;color:#888;margin-top:4px;">📝 Google summary shown — AI will enhance on import</div>'
+                : '';
+
             var row = $('<tr class="' + rowClass + '">').html(
                 '<td><input type="checkbox" class="gdwaws-preview-check" data-place-id="' + escHtml(p.place_id) + '" ' + checked + '></td>' +
                 '<td><div class="gdwaws-biz-name">' + escHtml(p.name) + '</div>' + phone + website + '</td>' +
                 '<td style="font-size:12px;">' + escHtml(p.address) + '</td>' +
                 '<td style="font-size:12px;">' + escHtml(p.category) + '</td>' +
-                '<td><textarea class="gdwaws-desc-edit" data-place-id="' + escHtml(p.place_id) + '">' + escHtml(p.description) + '</textarea></td>' +
+                '<td><textarea class="gdwaws-desc-edit" data-place-id="' + escHtml(p.place_id) + '" data-source="' + escHtml(p.description_source || 'edited') + '">' + escHtml(p.description) + '</textarea>' + descNote + '</td>' +
                 '<td>' + statusHtml + '</td>'
             );
             tbody.append(row);
@@ -142,9 +149,12 @@ jQuery(function ($) {
             var p = previewData[place_id];
             if (!p) return;
 
-            // Pick up any edited description
-            var desc = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]').val();
-            var item = $.extend({}, p, { description: desc });
+            // Pick up any edited description and track if user changed it
+            var $textarea   = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]');
+            var desc        = $textarea.val();
+            var origSource  = $textarea.data('source') || 'edited';
+            var descSource  = desc !== (p.description || '') ? 'edited' : origSource;
+            var item = $.extend({}, p, { description: desc, description_source: descSource });
             items.push(item);
         });
 

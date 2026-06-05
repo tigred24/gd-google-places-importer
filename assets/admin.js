@@ -138,21 +138,19 @@ jQuery(function ($) {
         $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').prop('disabled', count === 0).text(label);
     }
 
-    // ── Confirm Import ───────────────────────────────────────────
+    // ── Confirm Import (batch processing) ───────────────────────
     function doConfirmImport() {
-        var post_type = $('#gdwaws-preview-wrap').data('post-type') || 'gd_place';
+        var post_type  = $('#gdwaws-preview-wrap').data('post-type') || 'gd_place';
+        var BATCH_SIZE = 5;
         var selections = [];
 
-        // Collect only place_id + description — re-fetch everything else server-side
         $('.gdwaws-preview-check:checked').each(function () {
             var place_id   = $(this).data('place-id');
             var $textarea  = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]');
             var desc       = $textarea.val();
             var origSource = $textarea.data('source') || 'google';
             var p          = previewData[place_id] || {};
-            // Mark as edited only if user changed the text from what was shown
             var descSource = ( desc !== (p.description || '') ) ? 'edited' : origSource;
-
             selections.push({ place_id: place_id, description: desc, description_source: descSource });
         });
 
@@ -161,53 +159,83 @@ jQuery(function ($) {
         $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').prop('disabled', true);
         $('#gdwaws-import-spinner').show();
         $('#gdwaws-log-wrap').show();
-        $('#gdwaws-log').html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' + selections.length + ' listings...</span></div>');
+        $('#gdwaws-log').html(
+            '<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' +
+            selections.length + ' listings in batches of ' + BATCH_SIZE + '...</span></div>'
+        );
 
-        $.ajax({
-            url: GDWAWS.ajax_url,
-            type: 'POST',
-            timeout: 300000,
-            data: {
-                action:     'gdwaws_confirm_import',
-                nonce:      GDWAWS.nonce,
-                post_type:  post_type,
-                selections: selections,
-            },
-            success: function (res) {
-            $('#gdwaws-import-spinner').hide();
-            updateConfirmButton();
+        // Split into batches
+        var batches = [];
+        for (var i = 0; i < selections.length; i += BATCH_SIZE) {
+            batches.push(selections.slice(i, i + BATCH_SIZE));
+        }
 
-            if (!res.success) {
-                $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ ' + escHtml(res.data.message || 'Error') + '</div>');
+        var batchIndex = 0;
+        var totalDone  = 0;
+
+        function runNextBatch() {
+            if (batchIndex >= batches.length) {
+                $('#gdwaws-import-spinner').hide();
+                updateConfirmButton();
+                appendLog('info', '✅ All batches complete. ' + totalDone + ' listings processed.');
                 return;
             }
 
-            (res.data.log || []).forEach(function (entry) {
-                var cls  = 'gdwaws-log-' + entry.type;
-                var icon = entry.type === 'success' ? '✅' : entry.type === 'error' ? '❌' : entry.type === 'skip' ? '⏭' : 'ℹ️';
-                $('#gdwaws-log').append(
-                    '<div class="gdwaws-log-line">' +
-                    '<span class="gdwaws-log-time">[' + escHtml(entry.time) + ']</span> ' +
-                    '<span class="' + cls + '">' + icon + ' ' + escHtml(entry.message) + '</span>' +
-                    '</div>'
-                );
+            var batch    = batches[batchIndex];
+            var batchNum = batchIndex + 1;
+            batchIndex++;
+
+            appendLog('info', '📦 Batch ' + batchNum + ' of ' + batches.length + ' (' + batch.length + ' listings)...');
+
+            $.ajax({
+                url:     GDWAWS.ajax_url,
+                type:    'POST',
+                timeout: 120000,
+                data: {
+                    action:     'gdwaws_confirm_import',
+                    nonce:      GDWAWS.nonce,
+                    post_type:  post_type,
+                    selections: batch,
+                },
+                success: function (res) {
+                    if (!res.success) {
+                        appendLog('error', 'Batch ' + batchNum + ' failed: ' + (res.data.message || 'Unknown error'));
+                    } else {
+                        (res.data.log || []).forEach(function (entry) {
+                            appendLog(entry.type, entry.message, entry.time);
+                        });
+                        totalDone += batch.length;
+                    }
+                    runNextBatch();
+                },
+                error: function (xhr, status) {
+                    var msg = status === 'timeout'
+                        ? 'Batch ' + batchNum + ' timed out — skipping to next batch.'
+                        : 'Batch ' + batchNum + ' request failed (status: ' + status + ').';
+                    appendLog('error', msg);
+                    runNextBatch();
+                }
             });
+        }
 
-            $('#gdwaws-log')[0].scrollTop = $('#gdwaws-log')[0].scrollHeight;
-
-            },
-            error: function (xhr, status) {
-                $('#gdwaws-import-spinner').hide();
-                updateConfirmButton();
-                var msg = status === 'timeout'
-                    ? 'Import timed out. Try importing fewer listings at once.'
-                    : 'AJAX request failed (status: ' + status + '). Check your server error logs.';
-                $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ ' + escHtml(msg) + '</div>');
-            }
-        });
+        runNextBatch();
     }
 
-    $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').on('click', doConfirmImport);
+    function appendLog(type, message, time) {
+        var $log = $('#gdwaws-log');
+        var cls  = 'gdwaws-log-' + type;
+        var icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'skip' ? '⏭' : 'ℹ️';
+        $log.append(
+            '<div class="gdwaws-log-line">' +
+            ( time ? '<span class="gdwaws-log-time">[' + escHtml(time) + ']</span> ' : '' ) +
+            '<span class="' + cls + '">' + icon + ' ' + escHtml(message) + '</span>' +
+            '</div>'
+        );
+        $log[0].scrollTop = $log[0].scrollHeight;
+    }
+
+
+        $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').on('click', doConfirmImport);
 
     // ── Bulk Publish ─────────────────────────────────────────────
     $('#gdwaws-bulk-publish').on('click', function () {

@@ -46,25 +46,47 @@ class GDWAWS_Admin {
         $default_radius = GDWAWS_Settings::get( 'search_radius', 8000 );
         $default_pt     = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
 
-        // Get all GeoDirectory custom post types
+        // Get all GeoDirectory custom post types — try multiple methods
         $gd_post_types = [];
+
+        // Method 1: geodir_get_posttypes() — returns array of post type name strings
         if ( function_exists( 'geodir_get_posttypes' ) ) {
-            $gd_pts = geodir_get_posttypes( 'object' );
-            foreach ( $gd_pts as $pt ) {
-                $gd_post_types[ $pt->name ] = $pt->label;
-            }
-        } else {
-            // Fallback — get any post types with geodirectory support
-            $args = [ 'public' => true, '_builtin' => false ];
-            $pts  = get_post_types( $args, 'objects' );
-            foreach ( $pts as $pt ) {
-                if ( strpos( $pt->name, 'gd_' ) === 0 ) {
-                    $gd_post_types[ $pt->name ] = $pt->label;
+            $pt_names = geodir_get_posttypes();
+            if ( is_array( $pt_names ) ) {
+                foreach ( $pt_names as $pt_name ) {
+                    $pt_name = is_object( $pt_name ) ? $pt_name->post_type : (string) $pt_name;
+                    $pt_obj  = get_post_type_object( $pt_name );
+                    if ( $pt_obj ) {
+                        $gd_post_types[ $pt_name ] = $pt_obj->label ?: $pt_name;
+                    }
                 }
             }
-            if ( empty( $gd_post_types ) ) {
-                $gd_post_types[ 'gd_place' ] = 'Places';
+        }
+
+        // Method 2: Scan all registered post types for GeoDirectory ones
+        if ( empty( $gd_post_types ) ) {
+            $all_pts = get_post_types( [ '_builtin' => false ], 'objects' );
+            foreach ( $all_pts as $pt ) {
+                if ( strpos( $pt->name, 'gd_' ) === 0 ) {
+                    $gd_post_types[ $pt->name ] = $pt->label ?: $pt->name;
+                }
             }
+        }
+
+        // Method 3: GeoDirectory stores post types in its options
+        if ( empty( $gd_post_types ) ) {
+            $gd_cpts = get_option( 'geodir_post_types', [] );
+            if ( is_array( $gd_cpts ) ) {
+                foreach ( $gd_cpts as $pt_name => $pt_data ) {
+                    $label = is_array( $pt_data ) ? ( $pt_data['labels']['name'] ?? $pt_name ) : $pt_name;
+                    $gd_post_types[ $pt_name ] = $label;
+                }
+            }
+        }
+
+        // Absolute fallback
+        if ( empty( $gd_post_types ) ) {
+            $gd_post_types['gd_place'] = 'Places (gd_place)';
         }
         ?>
         <div class="wrap gdwaws-wrap">

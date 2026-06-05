@@ -64,7 +64,7 @@ class GDWAWS_Importer {
         if ( is_wp_error( $details ) ) return null;
 
         // Skip permanently closed
-        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' ) return null;
+        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' || ( $details['business_status'] ?? '' ) === 'CLOSED_TEMPORARILY' ) return null;
 
         $name    = $details['name'] ?? 'Unknown';
         $address = $details['formatted_address'] ?? '';
@@ -170,7 +170,7 @@ class GDWAWS_Importer {
             return;
         }
 
-        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' ) {
+        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' || ( $details['business_status'] ?? '' ) === 'CLOSED_TEMPORARILY' ) {
             $this->log_entry( 'skip', ( $details['name'] ?? $place_id ) . ' — permanently closed, skipping.' );
             return;
         }

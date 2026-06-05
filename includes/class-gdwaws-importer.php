@@ -12,145 +12,184 @@ class GDWAWS_Importer {
         $this->claude     = new GDWAWS_Claude();
     }
 
-    /**
-     * Run imports for multiple categories, combining results.
-     */
-    public function run_multi( $region, $categories, $radius = 8000, $city_filter = '', $post_type = 'gd_place' ) {
-        $this->log = [];
-
-        if ( empty( $categories ) ) {
-            $this->log_entry( 'error', 'No categories selected.' );
-            return $this->log;
-        }
-
-        $this->log_entry( 'info', "Importing into post type: {$post_type}" );
-        $this->log_entry( 'info', count( $categories ) . ' categories selected: ' . implode( ', ', $categories ) );
-
-        foreach ( $categories as $category ) {
-            $this->log_entry( 'info', "─── Starting category: {$category} ───" );
-            $this->run( $region, $category, $radius, $city_filter, $post_type );
-        }
-
-        $this->log_entry( 'info', '✅ All categories complete.' );
-        return $this->log;
-    }
+    // ─────────────────────────────────────────────────────────────
+    // PREVIEW — fetch & enrich without saving anything
+    // ─────────────────────────────────────────────────────────────
 
     /**
-     * Run a full import for a region + type.
+     * Preview import across multiple categories. Returns enriched business data.
      */
-    public function run( $region, $type = 'establishment', $radius = 8000, $city_filter = '', $post_type = '' ) {
-        // Use saved post type if not passed
-        if ( empty( $post_type ) ) {
-            $post_type = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
-        }
-        $this->log = [];
-
-        // Extract city name from region string for filtering (e.g. "Goliad, TX" → "Goliad")
+    public function preview_multi( $region, $categories, $radius = 8000, $city_filter = '', $post_type = 'gd_place' ) {
         $city_name = '';
         if ( $city_filter ) {
             $parts     = explode( ',', $region );
             $city_name = trim( $parts[0] );
         }
 
-        $filter_msg = $city_name ? " / filtering to city: {$city_name}" : '';
-        $this->log_entry( 'info', "Starting import for: {$region} / {$type} / radius: " . ( $radius / 1000 ) . "km{$filter_msg}" );
+        $seen      = [];
+        $previews  = [];
 
-        // 1. Fetch businesses from Google
-        $businesses = $this->places_api->nearby_search( $region, $type, $radius );
-        if ( is_wp_error( $businesses ) ) {
-            $this->log_entry( 'error', 'Google Places error: ' . $businesses->get_error_message() );
-            return $this->log;
-        }
+        foreach ( $categories as $category ) {
+            $businesses = $this->places_api->nearby_search( $region, $category, $radius );
+            if ( is_wp_error( $businesses ) ) continue;
 
-        $this->log_entry( 'info', count( $businesses ) . ' businesses found.' );
-
-        // 2. Filter by city if enabled
-        if ( $city_name ) {
-            $before = count( $businesses );
-            $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
-                $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
-                return $this->address_matches_city( $address, $city_name );
-            });
-            $businesses = array_values( $businesses );
-            $skipped = $before - count( $businesses );
-            if ( $skipped > 0 ) {
-                $this->log_entry( 'info', "{$skipped} businesses outside {$city_name} filtered out." );
+            // City filter
+            if ( $city_name ) {
+                $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
+                    $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
+                    return $this->address_matches_city( $address, $city_name );
+                });
+                $businesses = array_values( $businesses );
             }
-            $this->log_entry( 'info', count( $businesses ) . ' businesses match city filter.' );
+
+            foreach ( $businesses as $biz ) {
+                $place_id = $biz['place_id'] ?? $biz['id'] ?? '';
+                if ( empty( $place_id ) || isset( $seen[ $place_id ] ) ) continue;
+                $seen[ $place_id ] = true;
+
+                $preview = $this->build_preview( $place_id, $post_type );
+                if ( $preview ) $previews[] = $preview;
+            }
         }
 
-        foreach ( $businesses as $biz ) {
-            $this->import_single( $biz, $post_type );
-        }
-
-        $this->log_entry( 'info', 'Import complete.' );
-        return $this->log;
+        return $previews;
     }
 
     /**
-     * Import a single business from a nearby search result.
+     * Fetch full details for one place and build a preview record.
      */
-    private function import_single( $biz, $post_type = '' ) {
+    private function build_preview( $place_id, $post_type ) {
         global $wpdb;
-        $table    = $wpdb->prefix . 'gdwaws_import_log';
-        $place_id = $biz['place_id'] ?? $biz['id'] ?? '';
-        $name     = $biz['name'] ?? $biz['displayName']['text'] ?? 'Unknown';
-        if ( empty( $post_type ) ) {
-            $post_type = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
-        }
 
-        // Skip if already imported
-        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $table WHERE place_id = %s", $place_id ) );
-        if ( $existing ) {
-            $this->log_entry( 'skip', "{$name} — already imported, skipping." );
-            return;
-        }
-
-        // Get full details (normalized to internal format)
         $details = $this->places_api->get_place_details( $place_id );
-        if ( is_wp_error( $details ) ) {
-            $this->log_entry( 'error', "{$name} — Details error: " . $details->get_error_message() );
-            $this->db_log( $place_id, $name, null, 'error', $details->get_error_message() );
-            return;
-        }
+        if ( is_wp_error( $details ) ) return null;
 
         // Skip permanently closed
-        if ( isset( $details['business_status'] ) && $details['business_status'] === 'CLOSED_PERMANENTLY' ) {
-            $this->log_entry( 'skip', "{$name} — permanently closed, skipping." );
-            return;
+        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' ) return null;
+
+        $name    = $details['name'] ?? 'Unknown';
+        $address = $details['formatted_address'] ?? '';
+
+        // Check plugin import log
+        $log_table   = $wpdb->prefix . 'gdwaws_import_log';
+        $already_logged = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $log_table WHERE place_id = %s", $place_id ) );
+
+        // Check for existing GeoDirectory post with same title
+        $existing_post = $wpdb->get_var( $wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_title = %s AND post_type = %s AND post_status != 'trash'",
+            $name, $post_type
+        ) );
+
+        $duplicate_reason = '';
+        if ( $already_logged ) {
+            $duplicate_reason = 'Already in import history';
+        } elseif ( $existing_post ) {
+            $duplicate_reason = 'Listing with this name already exists (Post #' . $existing_post . ')';
         }
 
-        // Generate description — AI or Google fallback
-        $use_ai = GDWAWS_Settings::get( 'use_claude', '1' ) === '1' && ! empty( GDWAWS_Settings::get( 'anthropic_api_key' ) );
-        $google_summary = isset( $details['editorial_summary']['overview'] ) ? $details['editorial_summary']['overview'] : '';
+        // Generate description
+        $use_ai         = GDWAWS_Settings::get( 'use_claude', '1' ) === '1' && ! empty( GDWAWS_Settings::get( 'anthropic_api_key' ) );
+        $google_summary = $details['editorial_summary']['overview'] ?? '';
 
         if ( $use_ai ) {
             $description = $this->claude->generate_description( $details );
             if ( is_wp_error( $description ) ) {
-                $this->log_entry( 'error', "{$name} — Claude error: " . $description->get_error_message() . '. Using Google summary.' );
                 $description = $google_summary;
             }
         } else {
             $description = $google_summary;
-            if ( empty( $description ) ) {
-                $this->log_entry( 'info', "{$name} — No Google summary available, description will be blank." );
-            }
         }
 
-        // Parse address
-        $address = $this->places_api->parse_address( $details );
+        // Map category
+        $cat_taxonomy = $post_type . 'category';
+        $cat_id       = $this->map_category( $details['types'] ?? [], $cat_taxonomy );
+        $cat_name     = '';
+        if ( $cat_id ) {
+            $term     = get_term( $cat_id, $cat_taxonomy );
+            $cat_name = $term && ! is_wp_error( $term ) ? $term->name : '';
+        }
 
-        // Build post data
+        $address_parsed = $this->places_api->parse_address( $details );
+
+        return [
+            'place_id'         => $place_id,
+            'name'             => $name,
+            'address'          => $address,
+            'address_parsed'   => $address_parsed,
+            'phone'            => $details['formatted_phone_number'] ?? '',
+            'website'          => $details['website'] ?? '',
+            'rating'           => $details['rating'] ?? '',
+            'category'         => $cat_name,
+            'description'      => (string) $description,
+            'hours'            => $details['opening_hours']['weekday_text'] ?? [],
+            'lat'              => $details['geometry']['location']['lat'] ?? '',
+            'lng'              => $details['geometry']['location']['lng'] ?? '',
+            'types'            => $details['types'] ?? [],
+            'photos'           => $details['photos'] ?? [],
+            'is_duplicate'     => ! empty( $duplicate_reason ),
+            'duplicate_reason' => $duplicate_reason,
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // CONFIRMED IMPORT — save selected businesses
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Import a list of confirmed preview items.
+     * Each item includes place_id, name, description (possibly edited), and all fields.
+     */
+    public function import_confirmed( $items, $post_type = 'gd_place' ) {
+        $this->log = [];
+
+        if ( empty( $items ) ) {
+            $this->log_entry( 'error', 'No items to import.' );
+            return $this->log;
+        }
+
+        $this->log_entry( 'info', 'Importing ' . count( $items ) . ' confirmed listings into ' . $post_type );
+
+        foreach ( $items as $item ) {
+            $this->save_single( $item, $post_type );
+        }
+
+        $this->log_entry( 'info', '✅ Import complete.' );
+        return $this->log;
+    }
+
+    /**
+     * Save a single confirmed item to GeoDirectory.
+     */
+    private function save_single( $item, $post_type ) {
+        global $wpdb;
+        $table    = $wpdb->prefix . 'gdwaws_import_log';
+        $place_id = sanitize_text_field( $item['place_id'] ?? '' );
+        $name     = sanitize_text_field( $item['name'] ?? 'Unknown' );
+
+        if ( empty( $place_id ) ) {
+            $this->log_entry( 'error', 'Missing place_id, skipping.' );
+            return;
+        }
+
+        // Final duplicate check before saving
+        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $table WHERE place_id = %s", $place_id ) );
+        if ( $existing ) {
+            $this->log_entry( 'skip', "{$name} — already in import log, skipping." );
+            return;
+        }
+
+        $description  = wp_kses_post( $item['description'] ?? '' );
+        $address      = $item['address_parsed'] ?? [];
+        $cat_taxonomy = $post_type . 'category';
+        $types        = $item['types'] ?? [];
+        $cat_id       = $this->map_category( $types, $cat_taxonomy );
+
         $post_data = [
-            'post_title'   => sanitize_text_field( $name ),
-            'post_content' => wp_kses_post( $description ),
+            'post_title'   => $name,
+            'post_content' => $description,
             'post_status'  => GDWAWS_Settings::get( 'post_status', 'draft' ),
             'post_type'    => $post_type,
         ];
-
-        // GeoDirectory category taxonomy is based on post type name
-        $cat_taxonomy = $post_type . 'category';
-        $cat_id = $this->map_category( $details['types'] ?? [], $cat_taxonomy );
 
         if ( $cat_id ) {
             $post_data['tax_input'] = [ $cat_taxonomy => [ $cat_id ] ];
@@ -164,55 +203,139 @@ class GDWAWS_Importer {
             return;
         }
 
-        // Save GeoDirectory meta fields
-        $lat = $details['geometry']['location']['lat'] ?? '';
-        $lng = $details['geometry']['location']['lng'] ?? '';
-
+        // Save GeoDirectory meta
         $meta = [
-            'geodir_location'  => $address['full'],
-            'geodir_address'   => $address['street'],
-            'geodir_city'      => $address['city'],
-            'geodir_region'    => $address['state'],
-            'geodir_zip'       => $address['zip'],
+            'geodir_location'  => $item['address'] ?? '',
+            'geodir_address'   => $address['street'] ?? '',
+            'geodir_city'      => $address['city'] ?? '',
+            'geodir_region'    => $address['state'] ?? '',
+            'geodir_zip'       => $address['zip'] ?? '',
             'geodir_country'   => 'US',
-            'geodir_latitude'  => $lat,
-            'geodir_longitude' => $lng,
-            'geodir_phone'     => isset( $details['formatted_phone_number'] ) ? sanitize_text_field( $details['formatted_phone_number'] ) : '',
-            'geodir_website'   => isset( $details['website'] ) ? esc_url_raw( $details['website'] ) : '',
-            'geodir_timing'    => $this->format_hours( $details['opening_hours']['weekday_text'] ?? [] ),
-            'gdwaws_place_id'    => $place_id,
-            'gdwaws_rating'      => $details['rating'] ?? '',
+            'geodir_latitude'  => $item['lat'] ?? '',
+            'geodir_longitude' => $item['lng'] ?? '',
+            'geodir_phone'     => sanitize_text_field( $item['phone'] ?? '' ),
+            'geodir_website'   => esc_url_raw( $item['website'] ?? '' ),
+            'geodir_timing'    => $this->format_hours( $item['hours'] ?? [] ),
+            'gdwaws_place_id'  => $place_id,
+            'gdwaws_rating'    => sanitize_text_field( $item['rating'] ?? '' ),
         ];
 
         foreach ( $meta as $key => $value ) {
             update_post_meta( $post_id, $key, $value );
         }
 
-        // Import featured image from Google Photos
-        $photos = $details['photos'] ?? [];
+        // Featured image
+        $photos = $item['photos'] ?? [];
         if ( ! empty( $photos ) ) {
             $attachment_id = $this->places_api->fetch_featured_image( $photos, $post_id, $name );
-            if ( is_wp_error( $attachment_id ) ) {
-                $this->log_entry( 'info', "{$name} — No featured image: " . $attachment_id->get_error_message() );
-            } else {
+            if ( ! is_wp_error( $attachment_id ) ) {
                 set_post_thumbnail( $post_id, $attachment_id );
-                $this->log_entry( 'info', "{$name} — Featured image set (Attachment ID: {$attachment_id})" );
+                $this->log_entry( 'info', "{$name} — Featured image set." );
             }
-        } else {
-            $this->log_entry( 'info', "{$name} — No photos available from Google." );
         }
 
-        // Log success
-        $this->db_log( $place_id, $name, $post_id, 'imported', 'Successfully imported.' );
-        $this->log_entry( 'success', "{$name} — Imported (Post ID: {$post_id})" );
+        $this->db_log( $place_id, $name, $post_id, 'imported', 'Imported via preview.' );
+        $this->log_entry( 'success', "{$name} — Saved (Post ID: {$post_id})" );
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // BULK PUBLISH
+    // ─────────────────────────────────────────────────────────────
+
     /**
-     * Map Google place types to a GeoDirectory category ID.
+     * Publish all draft posts of the given post type that were imported by this plugin.
      */
+    public static function bulk_publish( $post_type = 'gd_place' ) {
+        global $wpdb;
+        $log_table = $wpdb->prefix . 'gdwaws_import_log';
+
+        // Get post IDs from our log that are still drafts
+        $post_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT l.post_id FROM $log_table l
+             INNER JOIN {$wpdb->posts} p ON p.ID = l.post_id
+             WHERE l.status = 'imported'
+             AND p.post_type = %s
+             AND p.post_status = 'draft'
+             AND l.post_id IS NOT NULL",
+            $post_type
+        ) );
+
+        $published = 0;
+        foreach ( $post_ids as $post_id ) {
+            $result = wp_update_post( [
+                'ID'          => intval( $post_id ),
+                'post_status' => 'publish',
+            ] );
+            if ( $result && ! is_wp_error( $result ) ) $published++;
+        }
+
+        return [ 'published' => $published, 'total' => count( $post_ids ) ];
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // LEGACY run_multi (kept for backwards compat)
+    // ─────────────────────────────────────────────────────────────
+
+    public function run_multi( $region, $categories, $radius = 8000, $city_filter = '', $post_type = 'gd_place' ) {
+        $this->log = [];
+        foreach ( $categories as $category ) {
+            $this->log_entry( 'info', "─── Category: {$category} ───" );
+            $this->run( $region, $category, $radius, $city_filter, $post_type );
+        }
+        $this->log_entry( 'info', '✅ All categories complete.' );
+        return $this->log;
+    }
+
+    public function run( $region, $type = 'establishment', $radius = 8000, $city_filter = '', $post_type = '' ) {
+        if ( empty( $post_type ) ) {
+            $post_type = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
+        }
+
+        $city_name = '';
+        if ( $city_filter ) {
+            $parts     = explode( ',', $region );
+            $city_name = trim( $parts[0] );
+        }
+
+        $businesses = $this->places_api->nearby_search( $region, $type, $radius );
+        if ( is_wp_error( $businesses ) ) {
+            $this->log_entry( 'error', 'Google Places error: ' . $businesses->get_error_message() );
+            return $this->log;
+        }
+
+        $this->log_entry( 'info', count( $businesses ) . ' businesses found.' );
+
+        if ( $city_name ) {
+            $before = count( $businesses );
+            $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
+                $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
+                return $this->address_matches_city( $address, $city_name );
+            });
+            $businesses = array_values( $businesses );
+            $skipped    = $before - count( $businesses );
+            if ( $skipped > 0 ) {
+                $this->log_entry( 'info', "{$skipped} businesses filtered out." );
+            }
+        }
+
+        foreach ( $businesses as $biz ) {
+            $place_id = $biz['place_id'] ?? $biz['id'] ?? '';
+            $preview  = $this->build_preview( $place_id, $post_type );
+            if ( $preview && ! $preview['is_duplicate'] ) {
+                $this->save_single( $preview, $post_type );
+            }
+        }
+
+        $this->log_entry( 'info', 'Import complete.' );
+        return $this->log;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────────────────────
+
     private function map_category( $types, $taxonomy = 'gd_placecategory' ) {
         $map = [
-            // Food & Drink
             'restaurant'                => 'Restaurants',
             'cafe'                      => 'Cafes / Coffee',
             'bar'                       => 'Bars',
@@ -222,8 +345,6 @@ class GDWAWS_Importer {
             'food'                      => 'Restaurants',
             'night_club'                => 'Night Clubs',
             'liquor_store'              => 'Liquor Stores',
-
-            // Shopping
             'store'                     => 'Shopping',
             'grocery_or_supermarket'    => 'Grocery',
             'convenience_store'         => 'Convenience Stores',
@@ -242,8 +363,6 @@ class GDWAWS_Importer {
             'shopping_mall'             => 'Shopping',
             'pharmacy'                  => 'Pharmacies',
             'drugstore'                 => 'Pharmacies',
-
-            // Health & Medical
             'hospital'                  => 'Health & Medical',
             'doctor'                    => 'Health & Medical',
             'dentist'                   => 'Dentists',
@@ -252,20 +371,14 @@ class GDWAWS_Importer {
             'veterinary_care'           => 'Veterinary',
             'gym'                       => 'Health & Fitness',
             'spa'                       => 'Beauty & Spas',
-
-            // Beauty
             'hair_care'                 => 'Beauty & Spas',
             'beauty_salon'              => 'Beauty & Spas',
             'nail_salon'                => 'Beauty & Spas',
-
-            // Automotive
             'car_dealer'                => 'Auto Services',
             'car_repair'                => 'Auto Services',
             'car_wash'                  => 'Auto Services',
             'gas_station'               => 'Gas Stations',
             'parking'                   => 'Parking',
-
-            // Home Services
             'electrician'               => 'Home Services',
             'plumber'                   => 'Home Services',
             'painter'                   => 'Home Services',
@@ -274,36 +387,26 @@ class GDWAWS_Importer {
             'moving_company'            => 'Home Services',
             'storage'                   => 'Storage',
             'locksmith'                 => 'Home Services',
-
-            // Professional Services
             'lawyer'                    => 'Legal Services',
             'accounting'                => 'Financial Services',
             'insurance_agency'          => 'Insurance',
             'real_estate_agency'        => 'Real Estate',
             'travel_agency'             => 'Travel',
             'employment_agency'         => 'Employment',
-
-            // Financial
             'bank'                      => 'Financial Services',
             'atm'                       => 'Financial Services',
             'finance'                   => 'Financial Services',
-
-            // Education
             'school'                    => 'Education',
             'university'                => 'Education',
             'library'                   => 'Libraries',
             'primary_school'            => 'Education',
             'secondary_school'          => 'Education',
-
-            // Religion & Community
             'church'                    => 'Churches',
             'mosque'                    => 'Places of Worship',
             'synagogue'                 => 'Places of Worship',
             'hindu_temple'              => 'Places of Worship',
             'cemetery'                  => 'Cemeteries',
             'community_center'          => 'Community Centers',
-
-            // Government & Civic
             'city_hall'                 => 'Government',
             'local_government_office'   => 'Government',
             'courthouse'                => 'Government',
@@ -311,13 +414,9 @@ class GDWAWS_Importer {
             'fire_station'              => 'Emergency Services',
             'police'                    => 'Emergency Services',
             'embassy'                   => 'Government',
-
-            // Lodging
             'lodging'                   => 'Hotels & Lodging',
             'campground'                => 'Campgrounds & RV Parks',
             'rv_park'                   => 'Campgrounds & RV Parks',
-
-            // Arts, Culture & Entertainment
             'museum'                    => 'Museums',
             'art_gallery'               => 'Arts & Culture',
             'tourist_attraction'        => 'Tourist Attractions',
@@ -329,30 +428,22 @@ class GDWAWS_Importer {
             'casino'                    => 'Entertainment',
             'stadium'                   => 'Sports & Recreation',
             'zoo'                       => 'Tourist Attractions',
-
-            // Outdoors & Recreation
             'park'                      => 'Parks & Recreation',
             'natural_feature'           => 'Parks & Recreation',
             'golf_course'               => 'Sports & Recreation',
-
-            // Transportation
             'airport'                   => 'Transportation',
             'bus_station'               => 'Transportation',
             'train_station'             => 'Transportation',
             'transit_station'           => 'Transportation',
             'taxi_stand'                => 'Transportation',
-
-            // Funeral
             'funeral_home'              => 'Funeral Homes',
         ];
 
         foreach ( $types as $type ) {
             if ( isset( $map[ $type ] ) ) {
                 $cat_name = $map[ $type ];
-                $term = get_term_by( 'name', $cat_name, $taxonomy );
+                $term     = get_term_by( 'name', $cat_name, $taxonomy );
                 if ( $term ) return $term->term_id;
-
-                // Create it if it doesn't exist
                 $new_term = wp_insert_term( $cat_name, $taxonomy );
                 if ( ! is_wp_error( $new_term ) ) return $new_term['term_id'];
             }
@@ -360,51 +451,21 @@ class GDWAWS_Importer {
         return null;
     }
 
-    /**
-     * Format opening hours array into a readable string.
-     */
+    private function address_matches_city( $address, $city_name ) {
+        if ( empty( $address ) || empty( $city_name ) ) return true;
+        $address_lower = strtolower( $address );
+        $city_lower    = strtolower( trim( $city_name ) );
+        return strpos( $address_lower, $city_lower ) !== false;
+    }
+
     private function format_hours( $hours_array ) {
         return implode( "\n", $hours_array );
     }
 
-    /**
-     * Check if a formatted address contains the target city name.
-     * Uses loose matching to handle variations like "Goliad" vs "Goliad County".
-     */
-    private function address_matches_city( $address, $city_name ) {
-        if ( empty( $address ) || empty( $city_name ) ) return true;
-
-        // Normalize both strings — lowercase, remove punctuation
-        $address_lower   = strtolower( $address );
-        $city_lower      = strtolower( trim( $city_name ) );
-
-        // Direct match — city name appears in address
-        if ( strpos( $address_lower, $city_lower ) !== false ) {
-            return true;
-        }
-
-        // Try matching just the first word of the city (e.g. "Fort" from "Fort Worth")
-        $city_parts = explode( ' ', $city_lower );
-        if ( count( $city_parts ) > 1 ) {
-            $full_city = implode( ' ', $city_parts );
-            if ( strpos( $address_lower, $full_city ) !== false ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Add an entry to the in-memory log.
-     */
     private function log_entry( $type, $message ) {
         $this->log[] = [ 'type' => $type, 'message' => $message, 'time' => current_time( 'H:i:s' ) ];
     }
 
-    /**
-     * Save an entry to the DB log table.
-     */
     private function db_log( $place_id, $name, $post_id, $status, $message ) {
         global $wpdb;
         $wpdb->replace( $wpdb->prefix . 'gdwaws_import_log', [
@@ -416,18 +477,12 @@ class GDWAWS_Importer {
         ]);
     }
 
-    /**
-     * Get import history from DB.
-     */
     public static function get_history( $limit = 50 ) {
         global $wpdb;
         $table = $wpdb->prefix . 'gdwaws_import_log';
         return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM $table ORDER BY imported_at DESC LIMIT %d", $limit ) );
     }
 
-    /**
-     * Get import counts.
-     */
     public static function get_counts() {
         global $wpdb;
         $table = $wpdb->prefix . 'gdwaws_import_log';

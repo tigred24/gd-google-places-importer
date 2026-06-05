@@ -7,6 +7,9 @@ class GDWAWS_Admin {
         add_action( 'admin_menu', [ $this, 'register_menu' ] );
         add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
         add_action( 'wp_ajax_gdwaws_run_import', [ $this, 'ajax_run_import' ] );
+        add_action( 'wp_ajax_gdwaws_preview_import', [ $this, 'ajax_preview_import' ] );
+        add_action( 'wp_ajax_gdwaws_confirm_import', [ $this, 'ajax_confirm_import' ] );
+        add_action( 'wp_ajax_gdwaws_bulk_publish', [ $this, 'ajax_bulk_publish' ] );
         add_action( 'wp_ajax_gdwaws_save_settings', [ $this, 'ajax_save_settings' ] );
         add_action( 'wp_ajax_gdwaws_test_google', [ $this, 'ajax_test_google' ] );
         add_action( 'wp_ajax_gdwaws_test_claude', [ $this, 'ajax_test_claude' ] );
@@ -192,10 +195,48 @@ class GDWAWS_Admin {
                 </table>
 
                 <div class="gdwaws-actions">
-                    <button id="gdwaws-run-import" class="button button-primary button-hero">
-                        ▶ Start Import
+                    <button id="gdwaws-preview-import" class="button button-primary button-hero">
+                        🔍 Preview Import
                     </button>
-                    <span id="gdwaws-spinner" class="gdwaws-spinner" style="display:none;">⏳ Importing...</span>
+                    <span id="gdwaws-spinner" class="gdwaws-spinner" style="display:none;">⏳ Fetching from Google...</span>
+                </div>
+            </div>
+
+            <div id="gdwaws-preview-wrap" class="gdwaws-card" style="display:none;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <h2 style="margin:0;">Preview Results</h2>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span id="gdwaws-preview-count" style="font-size:13px; color:#666;"></span>
+                        <button type="button" class="button" id="gdwaws-check-all">Check All</button>
+                        <button type="button" class="button" id="gdwaws-uncheck-all">Uncheck All</button>
+                        <button type="button" class="button button-primary" id="gdwaws-confirm-import" disabled>
+                            ✅ Import Selected
+                        </button>
+                    </div>
+                </div>
+                <div id="gdwaws-preview-table-wrap" style="overflow-x:auto;">
+                    <table class="widefat" id="gdwaws-preview-table">
+                        <thead>
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th>Business</th>
+                                <th>Address</th>
+                                <th>Category</th>
+                                <th>Description</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gdwaws-preview-body"></tbody>
+                    </table>
+                </div>
+                <div style="margin-top:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="button button-primary button-hero" id="gdwaws-confirm-import-bottom" disabled>
+                        ✅ Import Selected
+                    </button>
+                    <button type="button" class="button button-hero" id="gdwaws-bulk-publish">
+                        🚀 Bulk Publish All Drafts
+                    </button>
+                    <span id="gdwaws-import-spinner" class="gdwaws-spinner" style="display:none;">⏳ Importing...</span>
                 </div>
             </div>
 
@@ -362,6 +403,71 @@ class GDWAWS_Admin {
     }
 
     // ─── AJAX Handlers ───────────────────────────────────────────
+
+    public function ajax_preview_import() {
+        check_ajax_referer( 'gdwaws_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+
+        $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
+        $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
+        $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
+        $limit       = intval( $_POST['limit'] ?? 20 );
+        $radius      = intval( $_POST['radius'] ?? 8000 );
+        $city_filter = sanitize_text_field( $_POST['city_filter'] ?? '' );
+
+        GDWAWS_Settings::set( 'import_limit', $limit );
+        GDWAWS_Settings::set( 'search_radius', $radius );
+        GDWAWS_Settings::set( 'geodir_post_type', $post_type );
+
+        $importer = new GDWAWS_Importer();
+        $previews = $importer->preview_multi( $region, $categories, $radius, $city_filter, $post_type );
+
+        wp_send_json_success( [ 'previews' => $previews ] );
+    }
+
+    public function ajax_confirm_import() {
+        check_ajax_referer( 'gdwaws_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+
+        $post_type = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
+        $raw_items = isset( $_POST['items'] ) ? (array) $_POST['items'] : [];
+
+        // Sanitize each item
+        $items = [];
+        foreach ( $raw_items as $item ) {
+            if ( ! is_array( $item ) ) continue;
+            $items[] = [
+                'place_id'       => sanitize_text_field( $item['place_id'] ?? '' ),
+                'name'           => sanitize_text_field( $item['name'] ?? '' ),
+                'description'    => wp_kses_post( $item['description'] ?? '' ),
+                'address'        => sanitize_text_field( $item['address'] ?? '' ),
+                'address_parsed' => array_map( 'sanitize_text_field', (array) ( $item['address_parsed'] ?? [] ) ),
+                'phone'          => sanitize_text_field( $item['phone'] ?? '' ),
+                'website'        => esc_url_raw( $item['website'] ?? '' ),
+                'rating'         => sanitize_text_field( $item['rating'] ?? '' ),
+                'lat'            => sanitize_text_field( $item['lat'] ?? '' ),
+                'lng'            => sanitize_text_field( $item['lng'] ?? '' ),
+                'hours'          => array_map( 'sanitize_text_field', (array) ( $item['hours'] ?? [] ) ),
+                'types'          => array_map( 'sanitize_text_field', (array) ( $item['types'] ?? [] ) ),
+                'photos'         => (array) ( $item['photos'] ?? [] ),
+            ];
+        }
+
+        $importer = new GDWAWS_Importer();
+        $log      = $importer->import_confirmed( $items, $post_type );
+
+        wp_send_json_success( [ 'log' => $log ] );
+    }
+
+    public function ajax_bulk_publish() {
+        check_ajax_referer( 'gdwaws_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+
+        $post_type = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
+        $result    = GDWAWS_Importer::bulk_publish( $post_type );
+
+        wp_send_json_success( $result );
+    }
 
     public function ajax_run_import() {
         check_ajax_referer( 'gdwaws_nonce', 'nonce' );

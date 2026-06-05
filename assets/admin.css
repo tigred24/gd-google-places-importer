@@ -148,3 +148,39 @@
 
 #gdwaws-settings-msg.success { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
 #gdwaws-settings-msg.error   { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+
+/* Preview Table */
+#gdwaws-preview-table { table-layout: fixed; width: 100%; }
+#gdwaws-preview-table th:nth-child(1) { width: 36px; }
+#gdwaws-preview-table th:nth-child(2) { width: 18%; }
+#gdwaws-preview-table th:nth-child(3) { width: 18%; }
+#gdwaws-preview-table th:nth-child(4) { width: 14%; }
+#gdwaws-preview-table th:nth-child(5) { width: auto; }
+#gdwaws-preview-table th:nth-child(6) { width: 130px; }
+
+#gdwaws-preview-table td { vertical-align: top; padding: 10px 8px; }
+#gdwaws-preview-table tr.gdwaws-duplicate { background: #fff8e1; }
+#gdwaws-preview-table tr.gdwaws-duplicate td { opacity: 0.75; }
+
+.gdwaws-desc-edit {
+    width: 100%;
+    min-height: 80px;
+    font-size: 12px;
+    line-height: 1.5;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 6px;
+    resize: vertical;
+    font-family: var(--font-sans, sans-serif);
+    box-sizing: border-box;
+}
+
+.gdwaws-desc-edit:focus { border-color: #2271b1; outline: none; box-shadow: 0 0 0 1px #2271b1; }
+
+.gdwaws-status-ok   { color: #00a32a; font-size: 12px; font-weight: 600; }
+.gdwaws-status-dup  { color: #d63638; font-size: 12px; font-weight: 600; }
+.gdwaws-status-info { color: #888; font-size: 11px; margin-top: 3px; }
+
+.gdwaws-biz-name  { font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+.gdwaws-biz-phone { font-size: 11px; color: #666; }
+.gdwaws-biz-site  { font-size: 11px; color: #2271b1; word-break: break-all; }

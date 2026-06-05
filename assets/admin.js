@@ -1,85 +1,206 @@
 /* GD Google Places Importer - Admin JS */
 jQuery(function ($) {
 
+    var previewData = []; // Stores full preview objects keyed by place_id
+
     // ── Select / Deselect All Categories ────────────────────────
     $('#gdwaws-select-all-cats').on('click', function () {
         $('.gdwaws-cat-check').prop('checked', true);
     });
-
     $('#gdwaws-deselect-all-cats').on('click', function () {
         $('.gdwaws-cat-check').prop('checked', false);
     });
 
-    // ── Run Import ──────────────────────────────────────────────
-    $('#gdwaws-run-import').on('click', function () {
+    // ── Preview Import ───────────────────────────────────────────
+    $('#gdwaws-preview-import').on('click', function () {
         var region      = $('#gdwaws_region').val().trim();
         var post_type   = $('#gdwaws_post_type').val();
         var limit       = $('#gdwaws_limit').val();
         var radius      = $('#gdwaws_radius').val();
         var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
+        var categories  = [];
+        $('.gdwaws-cat-check:checked').each(function () { categories.push($(this).val()); });
 
-        // Collect all checked categories
-        var categories = [];
-        $('.gdwaws-cat-check:checked').each(function () {
-            categories.push($(this).val());
-        });
+        if (!region) { alert('Please enter a region/location.'); return; }
+        if (categories.length === 0) { alert('Please select at least one category.'); return; }
 
-        if (!region) {
-            alert('Please enter a region/location.');
-            return;
-        }
-
-        if (categories.length === 0) {
-            alert('Please select at least one Google Place category.');
-            return;
-        }
-
-        var $btn     = $(this);
-        var $spinner = $('#gdwaws-spinner');
-        var $logWrap = $('#gdwaws-log-wrap');
-        var $log     = $('#gdwaws-log');
-
+        var $btn = $(this);
         $btn.prop('disabled', true);
-        $spinner.show();
-        $logWrap.show();
-        $log.html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">Starting import: ' + escHtml(region) + ' → ' + escHtml(post_type) + ' (' + categories.length + ' categories)...</span></div>');
+        $('#gdwaws-spinner').show();
+        $('#gdwaws-preview-wrap').hide();
+        $('#gdwaws-log-wrap').hide();
+        previewData = [];
 
         $.post(GDWAWS.ajax_url, {
-            action:      'gdwaws_run_import',
-            nonce:       GDWAWS.nonce,
-            region:      region,
-            post_type:   post_type,
-            categories:  categories,
-            limit:       limit,
-            radius:      radius,
-            city_filter: city_filter,
+            action: 'gdwaws_preview_import',
+            nonce: GDWAWS.nonce,
+            region: region, post_type: post_type,
+            categories: categories, limit: limit,
+            radius: radius, city_filter: city_filter,
         }, function (res) {
             $btn.prop('disabled', false);
-            $spinner.hide();
+            $('#gdwaws-spinner').hide();
 
             if (!res.success) {
-                $log.append('<div class="gdwaws-log-line gdwaws-log-error">❌ ' + escHtml(res.data.message || 'Unknown error.') + '</div>');
+                alert('Preview failed: ' + (res.data.message || 'Unknown error'));
                 return;
             }
 
-            var entries = res.data.log || [];
-            entries.forEach(function (entry) {
+            var previews = res.data.previews || [];
+            if (previews.length === 0) {
+                alert('No businesses found. Try adjusting your region, categories, or radius.');
+                return;
+            }
+
+            renderPreview(previews, post_type);
+
+        }).fail(function () {
+            $btn.prop('disabled', false);
+            $('#gdwaws-spinner').hide();
+            alert('AJAX request failed. Check your server logs.');
+        });
+    });
+
+    // ── Render Preview Table ─────────────────────────────────────
+    function renderPreview(previews, post_type) {
+        previewData = {};
+        var tbody = $('#gdwaws-preview-body').empty();
+        var total = previews.length;
+        var dupCount = 0;
+
+        previews.forEach(function (p) {
+            previewData[p.place_id] = p;
+            if (p.is_duplicate) dupCount++;
+
+            var isDup    = p.is_duplicate;
+            var checked  = isDup ? '' : 'checked';
+            var rowClass = isDup ? 'gdwaws-duplicate' : '';
+
+            var website = p.website ? '<a href="' + escHtml(p.website) + '" target="_blank" class="gdwaws-biz-site">' + escHtml(p.website.replace(/^https?:\/\//, '').substring(0,30)) + '</a>' : '';
+            var phone   = p.phone ? '<div class="gdwaws-biz-phone">' + escHtml(p.phone) + '</div>' : '';
+
+            var statusHtml = isDup
+                ? '<span class="gdwaws-status-dup">⚠ Duplicate</span><div class="gdwaws-status-info">' + escHtml(p.duplicate_reason) + '</div>'
+                : '<span class="gdwaws-status-ok">✓ New</span>';
+
+            var row = $('<tr class="' + rowClass + '">').html(
+                '<td><input type="checkbox" class="gdwaws-preview-check" data-place-id="' + escHtml(p.place_id) + '" ' + checked + '></td>' +
+                '<td><div class="gdwaws-biz-name">' + escHtml(p.name) + '</div>' + phone + website + '</td>' +
+                '<td style="font-size:12px;">' + escHtml(p.address) + '</td>' +
+                '<td style="font-size:12px;">' + escHtml(p.category) + '</td>' +
+                '<td><textarea class="gdwaws-desc-edit" data-place-id="' + escHtml(p.place_id) + '">' + escHtml(p.description) + '</textarea></td>' +
+                '<td>' + statusHtml + '</td>'
+            );
+            tbody.append(row);
+        });
+
+        var summary = total + ' businesses found';
+        if (dupCount > 0) summary += ' (' + dupCount + ' duplicates unchecked)';
+        $('#gdwaws-preview-count').text(summary);
+
+        $('#gdwaws-preview-wrap').data('post-type', post_type).show();
+        updateConfirmButton();
+        $('html, body').animate({ scrollTop: $('#gdwaws-preview-wrap').offset().top - 40 }, 300);
+    }
+
+    // ── Check / Uncheck All Preview ──────────────────────────────
+    $('#gdwaws-check-all').on('click', function () {
+        $('.gdwaws-preview-check').prop('checked', true);
+        updateConfirmButton();
+    });
+    $('#gdwaws-uncheck-all').on('click', function () {
+        $('.gdwaws-preview-check').prop('checked', false);
+        updateConfirmButton();
+    });
+
+    $(document).on('change', '.gdwaws-preview-check', function () {
+        updateConfirmButton();
+    });
+
+    function updateConfirmButton() {
+        var count = $('.gdwaws-preview-check:checked').length;
+        var label = count > 0 ? '✅ Import ' + count + ' Selected' : '✅ Import Selected';
+        $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').prop('disabled', count === 0).text(label);
+    }
+
+    // ── Confirm Import ───────────────────────────────────────────
+    function doConfirmImport() {
+        var post_type = $('#gdwaws-preview-wrap').data('post-type') || 'gd_place';
+        var items = [];
+
+        // Collect checked items with potentially edited descriptions
+        $('.gdwaws-preview-check:checked').each(function () {
+            var place_id = $(this).data('place-id');
+            var p = previewData[place_id];
+            if (!p) return;
+
+            // Pick up any edited description
+            var desc = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]').val();
+            var item = $.extend({}, p, { description: desc });
+            items.push(item);
+        });
+
+        if (items.length === 0) { alert('No items selected.'); return; }
+
+        $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').prop('disabled', true);
+        $('#gdwaws-import-spinner').show();
+        $('#gdwaws-log-wrap').show();
+        $('#gdwaws-log').html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' + items.length + ' listings...</span></div>');
+
+        $.post(GDWAWS.ajax_url, {
+            action:    'gdwaws_confirm_import',
+            nonce:     GDWAWS.nonce,
+            post_type: post_type,
+            items:     items,
+        }, function (res) {
+            $('#gdwaws-import-spinner').hide();
+            updateConfirmButton();
+
+            if (!res.success) {
+                $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ ' + escHtml(res.data.message || 'Error') + '</div>');
+                return;
+            }
+
+            (res.data.log || []).forEach(function (entry) {
                 var cls  = 'gdwaws-log-' + entry.type;
                 var icon = entry.type === 'success' ? '✅' : entry.type === 'error' ? '❌' : entry.type === 'skip' ? '⏭' : 'ℹ️';
-                $log.append(
+                $('#gdwaws-log').append(
                     '<div class="gdwaws-log-line">' +
-                    '<span class="gdwaws-log-time">[' + escHtml(entry.time) + ']</span>' +
+                    '<span class="gdwaws-log-time">[' + escHtml(entry.time) + ']</span> ' +
                     '<span class="' + cls + '">' + icon + ' ' + escHtml(entry.message) + '</span>' +
                     '</div>'
                 );
             });
 
-            $log.scrollTop($log[0].scrollHeight);
+            $('#gdwaws-log')[0].scrollTop = $('#gdwaws-log')[0].scrollHeight;
 
         }).fail(function () {
-            $btn.prop('disabled', false);
-            $spinner.hide();
-            $log.append('<div class="gdwaws-log-line gdwaws-log-error">❌ AJAX request failed. Check your server logs.</div>');
+            $('#gdwaws-import-spinner').hide();
+            $('#gdwaws-log').append('<div class="gdwaws-log-line gdwaws-log-error">❌ AJAX request failed.</div>');
+        });
+    }
+
+    $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').on('click', doConfirmImport);
+
+    // ── Bulk Publish ─────────────────────────────────────────────
+    $('#gdwaws-bulk-publish').on('click', function () {
+        var post_type = $('#gdwaws-preview-wrap').data('post-type') || $('#gdwaws_post_type').val() || 'gd_place';
+        if (!confirm('Publish all draft listings imported by this plugin for post type "' + post_type + '"?')) return;
+
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('Publishing...');
+
+        $.post(GDWAWS.ajax_url, {
+            action:    'gdwaws_bulk_publish',
+            nonce:     GDWAWS.nonce,
+            post_type: post_type,
+        }, function (res) {
+            $btn.prop('disabled', false).text('🚀 Bulk Publish All Drafts');
+            if (res.success) {
+                alert('✅ Published ' + res.data.published + ' of ' + res.data.total + ' draft listings.');
+            } else {
+                alert('❌ Bulk publish failed.');
+            }
         });
     });
 
@@ -96,30 +217,22 @@ jQuery(function ($) {
     $('#gdwaws-save-settings').on('click', function () {
         var $btn = $(this);
         var $msg = $('#gdwaws-settings-msg');
-
         var data = {
-            action:             'gdwaws_save_settings',
-            nonce:              GDWAWS.nonce,
-            google_api_key:     $('#google_api_key').val(),
-            anthropic_api_key:  $('#anthropic_api_key').val(),
-            use_claude:         $('#use_claude').is(':checked') ? '1' : '0',
-            anthropic_model:    $('#anthropic_model').val(),
-            default_region:     $('#default_region').val(),
-            import_limit:       $('#import_limit').val(),
-            post_status:        $('#post_status').val(),
-            geodir_post_type:   $('#geodir_post_type').val(),
+            action: 'gdwaws_save_settings', nonce: GDWAWS.nonce,
+            google_api_key: $('#google_api_key').val(),
+            anthropic_api_key: $('#anthropic_api_key').val(),
+            use_claude: $('#use_claude').is(':checked') ? '1' : '0',
+            anthropic_model: $('#anthropic_model').val(),
+            default_region: $('#default_region').val(),
+            import_limit: $('#import_limit').val(),
+            post_status: $('#post_status').val(),
+            geodir_post_type: $('#geodir_post_type').val(),
         };
-
         $btn.prop('disabled', true).text('Saving...');
-
         $.post(GDWAWS.ajax_url, data, function (res) {
             $btn.prop('disabled', false).text('Save Settings');
             $msg.removeClass('success error').show();
-            if (res.success) {
-                $msg.addClass('success').text('✅ ' + res.data.message);
-            } else {
-                $msg.addClass('error').text('❌ ' + (res.data.message || 'Error saving.'));
-            }
+            $msg.addClass(res.success ? 'success' : 'error').text(res.success ? '✅ ' + res.data.message : '❌ ' + (res.data.message || 'Error'));
         });
     });
 
@@ -152,20 +265,14 @@ jQuery(function ($) {
         $('#gdwaws-clear-confirm').show();
         $(this).hide();
     });
-
     $('#gdwaws-clear-confirm-no').on('click', function () {
         $('#gdwaws-clear-confirm').hide();
         $('#gdwaws-clear-history').show();
     });
-
     $('#gdwaws-clear-confirm-yes').on('click', function () {
         var $btn = $(this);
         $btn.prop('disabled', true).text('Clearing...');
-
-        $.post(GDWAWS.ajax_url, {
-            action: 'gdwaws_clear_history',
-            nonce:  GDWAWS.nonce,
-        }, function (res) {
+        $.post(GDWAWS.ajax_url, { action: 'gdwaws_clear_history', nonce: GDWAWS.nonce }, function (res) {
             $('#gdwaws-clear-confirm').hide();
             var $msg = $('#gdwaws-clear-msg');
             $msg.show();

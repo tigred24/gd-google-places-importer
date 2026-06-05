@@ -45,7 +45,6 @@ class GDWAWS_Admin {
         $counts         = GDWAWS_Importer::get_counts();
         $place_types    = GDWAWS_Settings::google_place_types();
         $default_region = GDWAWS_Settings::get( 'default_region', 'Goliad, TX' );
-        $import_limit   = GDWAWS_Settings::get( 'import_limit', 20 );
         $default_pt     = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
 
         // Get all GeoDirectory custom post types — try multiple methods
@@ -150,13 +149,6 @@ class GDWAWS_Admin {
                                 </div>
                                 <p class="description" style="margin-top:6px;">Select one or more Google place categories to import. Each selected category will be searched separately.</p>
                             </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="gdwaws_limit">Max Listings</label></th>
-                        <td>
-                            <input type="number" id="gdwaws_limit" class="small-text" value="<?php echo esc_attr( $import_limit ); ?>" min="1" max="60" />
-                            <p class="description">Max listings per category (Google returns up to 60 across 3 pages).</p>
                         </td>
                     </tr>
                     <tr>
@@ -388,10 +380,8 @@ class GDWAWS_Admin {
         $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
         $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
         $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
-        $limit       = intval( $_POST['limit'] ?? 20 );
         $city_filter = sanitize_text_field( $_POST['city_filter'] ?? '' );
 
-        GDWAWS_Settings::set( 'import_limit', $limit );
         GDWAWS_Settings::set( 'geodir_post_type', $post_type );
 
         $importer = new GDWAWS_Importer();

@@ -15,7 +15,6 @@ jQuery(function ($) {
     $('#gdwaws-preview-import').on('click', function () {
         var region      = $('#gdwaws_region').val().trim();
         var post_type   = $('#gdwaws_post_type').val();
-        var limit       = $('#gdwaws_limit').val();
         var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
         var categories  = [];
         $('.gdwaws-cat-check:checked').each(function () { categories.push($(this).val()); });
@@ -34,7 +33,7 @@ jQuery(function ($) {
             action: 'gdwaws_preview_import',
             nonce: GDWAWS.nonce,
             region: region, post_type: post_type,
-            categories: categories, limit: limit,
+            categories: categories,
             city_filter: city_filter,
         }, function (res) {
             $btn.prop('disabled', false);

@@ -132,3 +132,39 @@ jQuery(function ($) {
         return $('<div>').text(str || '').html();
     }
 });
+
+    // ── Clear History ────────────────────────────────────────────
+    $('#gdwaws-clear-history').on('click', function () {
+        $('#gdwaws-clear-confirm').show();
+        $(this).hide();
+    });
+
+    $('#gdwaws-clear-confirm-no').on('click', function () {
+        $('#gdwaws-clear-confirm').hide();
+        $('#gdwaws-clear-history').show();
+    });
+
+    $('#gdwaws-clear-confirm-yes').on('click', function () {
+        var $btn = $(this);
+        $btn.prop('disabled', true).text('Clearing...');
+
+        $.post(GDWAWS.ajax_url, {
+            action: 'gdwaws_clear_history',
+            nonce:  GDWAWS.nonce,
+        }, function (res) {
+            $('#gdwaws-clear-confirm').hide();
+            var $msg = $('#gdwaws-clear-msg');
+            $msg.show();
+            if (res.success) {
+                $msg.css({ background: '#dff0d8', border: '1px solid #d6e9c6', color: '#3c763d', padding: '10px 14px', borderRadius: '4px' });
+                $msg.text(res.data.message);
+                $('#gdwaws-history-table tbody').html('<tr><td colspan="6">No imports yet.</td></tr>');
+                $('#gdwaws-clear-history').hide();
+            } else {
+                $msg.css({ background: '#f2dede', border: '1px solid #ebccd1', color: '#a94442', padding: '10px 14px', borderRadius: '4px' });
+                $msg.text(res.data.message);
+                $btn.prop('disabled', false).text('Yes, clear history');
+                $('#gdwaws-clear-history').show();
+            }
+        });
+    });

@@ -10,6 +10,7 @@ class GDWAWS_Admin {
         add_action( 'wp_ajax_gdwaws_save_settings', [ $this, 'ajax_save_settings' ] );
         add_action( 'wp_ajax_gdwaws_test_google', [ $this, 'ajax_test_google' ] );
         add_action( 'wp_ajax_gdwaws_test_claude', [ $this, 'ajax_test_claude' ] );
+        add_action( 'wp_ajax_gdwaws_clear_history', [ $this, 'ajax_clear_history' ] );
     }
 
     public function register_menu() {
@@ -143,11 +144,39 @@ class GDWAWS_Admin {
 
     public function render_history() {
         $history = GDWAWS_Importer::get_history( 100 );
+        $counts  = GDWAWS_Importer::get_counts();
         ?>
         <div class="wrap gdwaws-wrap">
             <h1>📋 Import History</h1>
             <div class="gdwaws-card">
-                <table class="widefat striped">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <p style="margin:0; color:var(--color-text-secondary, #666);">
+                        <?php echo $counts['total']; ?> total records
+                        (<?php echo $counts['imported']; ?> imported,
+                        <?php echo $counts['errors']; ?> errors)
+                    </p>
+                    <?php if ( ! empty( $history ) ) : ?>
+                    <div>
+                        <button id="gdwaws-clear-history" class="button button-link-delete">
+                            🗑 Clear All History
+                        </button>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <div id="gdwaws-clear-confirm" style="display:none; background:#fff3cd; border:1px solid #ffc107; border-radius:4px; padding:12px 16px; margin-bottom:16px;">
+                    <strong>Are you sure?</strong> This will clear all import history records.
+                    Existing GeoDirectory listings will <strong>not</strong> be deleted, but the plugin will
+                    forget which businesses have already been imported — re-running an import could create duplicates.
+                    <div style="margin-top:10px; display:flex; gap:10px;">
+                        <button id="gdwaws-clear-confirm-yes" class="button button-primary">Yes, clear history</button>
+                        <button id="gdwaws-clear-confirm-no" class="button">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="gdwaws-clear-msg" style="display:none; margin-bottom:12px;"></div>
+
+                <table class="widefat striped" id="gdwaws-history-table">
                     <thead>
                         <tr>
                             <th>Business</th>
@@ -390,5 +419,20 @@ class GDWAWS_Admin {
         }
 
         wp_send_json_success( [ 'message' => '✅ Claude API connected successfully!' ] );
+    }
+
+    public function ajax_clear_history() {
+        check_ajax_referer( 'gdwaws_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
+
+        global $wpdb;
+        $table   = $wpdb->prefix . 'gdwaws_import_log';
+        $deleted = $wpdb->query( "TRUNCATE TABLE $table" );
+
+        if ( $deleted === false ) {
+            wp_send_json_error( [ 'message' => 'Could not clear history. Please try again.' ] );
+        }
+
+        wp_send_json_success( [ 'message' => '✅ Import history cleared successfully.' ] );
     }
 }

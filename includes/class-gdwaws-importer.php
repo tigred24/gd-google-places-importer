@@ -124,27 +124,151 @@ class GDWAWS_Importer {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // CONFIRMED IMPORT — save selected businesses
+    // CONFIRMED IMPORT — save selected businesses by place_id
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Import a list of confirmed preview items.
-     * Each item includes place_id, name, description (possibly edited), and all fields.
+     * Import listings by re-fetching from Google using place_ids.
+     * $selections = [ place_id => [ 'description' => '...', 'description_source' => '...' ] ]
      */
-    public function import_confirmed( $items, $post_type = 'gd_place' ) {
+    public function import_by_place_ids( $place_ids, $selections, $post_type = 'gd_place' ) {
         $this->log = [];
 
-        if ( empty( $items ) ) {
-            $this->log_entry( 'error', 'No items to import.' );
+        if ( empty( $place_ids ) ) {
+            $this->log_entry( 'error', 'No listings selected.' );
             return $this->log;
         }
 
-        $this->log_entry( 'info', 'Importing ' . count( $items ) . ' confirmed listings into ' . $post_type );
+        $this->log_entry( 'info', 'Importing ' . count( $place_ids ) . ' listings into ' . $post_type );
 
+        foreach ( $place_ids as $place_id ) {
+            $override = $selections[ $place_id ] ?? [];
+            $this->import_by_place_id( $place_id, $override, $post_type );
+        }
+
+        $this->log_entry( 'info', '✅ Import complete.' );
+        return $this->log;
+    }
+
+    /**
+     * Fetch full details from Google and save a single listing.
+     */
+    private function import_by_place_id( $place_id, $override = [], $post_type = 'gd_place' ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'gdwaws_import_log';
+
+        // Final duplicate check
+        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM $table WHERE place_id = %s", $place_id ) );
+        if ( $existing ) {
+            $this->log_entry( 'skip', "Place ID {$place_id} — already in import log, skipping." );
+            return;
+        }
+
+        // Re-fetch full details from Google
+        $details = $this->places_api->get_place_details( $place_id );
+        if ( is_wp_error( $details ) ) {
+            $this->log_entry( 'error', "Place ID {$place_id} — Details error: " . $details->get_error_message() );
+            return;
+        }
+
+        if ( ( $details['business_status'] ?? '' ) === 'CLOSED_PERMANENTLY' ) {
+            $this->log_entry( 'skip', ( $details['name'] ?? $place_id ) . ' — permanently closed, skipping.' );
+            return;
+        }
+
+        $name = $details['name'] ?? 'Unknown';
+
+        // Determine description
+        $user_desc   = $override['description'] ?? '';
+        $desc_source = $override['description_source'] ?? 'google';
+        $google_sum  = $details['editorial_summary']['overview'] ?? '';
+        $use_ai      = GDWAWS_Settings::get( 'use_claude', '1' ) === '1' && ! empty( GDWAWS_Settings::get( 'anthropic_api_key' ) );
+
+        if ( $desc_source === 'edited' && ! empty( $user_desc ) ) {
+            // User manually edited — use their text
+            $description = $user_desc;
+        } elseif ( $use_ai ) {
+            // Generate AI description
+            $ai_desc = $this->claude->generate_description( $details );
+            $description = is_wp_error( $ai_desc ) ? $google_sum : (string) $ai_desc;
+            if ( ! is_wp_error( $ai_desc ) ) {
+                $this->log_entry( 'info', "{$name} — AI description generated." );
+            }
+        } else {
+            $description = $google_sum;
+        }
+
+        // Parse address and map category
+        $address      = $this->places_api->parse_address( $details );
+        $cat_taxonomy = $post_type . 'category';
+        $cat_id       = $this->map_category( $details['types'] ?? [], $cat_taxonomy );
+
+        $post_data = [
+            'post_title'   => sanitize_text_field( $name ),
+            'post_content' => wp_kses_post( $description ),
+            'post_status'  => GDWAWS_Settings::get( 'post_status', 'draft' ),
+            'post_type'    => $post_type,
+        ];
+
+        if ( $cat_id ) {
+            $post_data['tax_input'] = [ $cat_taxonomy => [ $cat_id ] ];
+        }
+
+        $post_id = wp_insert_post( $post_data, true );
+
+        if ( is_wp_error( $post_id ) ) {
+            $this->log_entry( 'error', "{$name} — Post insert error: " . $post_id->get_error_message() );
+            $this->db_log( $place_id, $name, null, 'error', $post_id->get_error_message() );
+            return;
+        }
+
+        // Save GeoDirectory meta
+        $lat = $details['geometry']['location']['lat'] ?? '';
+        $lng = $details['geometry']['location']['lng'] ?? '';
+
+        $meta = [
+            'geodir_location'  => $details['formatted_address'] ?? '',
+            'geodir_address'   => $address['street'] ?? '',
+            'geodir_city'      => $address['city'] ?? '',
+            'geodir_region'    => $address['state'] ?? '',
+            'geodir_zip'       => $address['zip'] ?? '',
+            'geodir_country'   => 'US',
+            'geodir_latitude'  => $lat,
+            'geodir_longitude' => $lng,
+            'geodir_phone'     => sanitize_text_field( $details['formatted_phone_number'] ?? '' ),
+            'geodir_website'   => esc_url_raw( $details['website'] ?? '' ),
+            'geodir_timing'    => $this->format_hours( $details['opening_hours']['weekday_text'] ?? [] ),
+            'gdwaws_place_id'  => $place_id,
+            'gdwaws_rating'    => sanitize_text_field( (string) ( $details['rating'] ?? '' ) ),
+        ];
+
+        foreach ( $meta as $key => $value ) {
+            update_post_meta( $post_id, $key, $value );
+        }
+
+        // Featured image
+        $photos = $details['photos'] ?? [];
+        if ( ! empty( $photos ) ) {
+            $attachment_id = $this->places_api->fetch_featured_image( $photos, $post_id, $name );
+            if ( ! is_wp_error( $attachment_id ) ) {
+                set_post_thumbnail( $post_id, $attachment_id );
+                $this->log_entry( 'info', "{$name} — Featured image set." );
+            }
+        }
+
+        $this->db_log( $place_id, $name, $post_id, 'imported', 'Imported successfully.' );
+        $this->log_entry( 'success', "{$name} — Saved (Post ID: {$post_id})" );
+    }
+
+    /**
+     * Import a list of confirmed preview items (legacy, kept for compat).
+     */
+    public function import_confirmed( $items, $post_type = 'gd_place' ) {
+        $this->log = [];
+        $this->log_entry( 'info', 'Importing ' . count( $items ) . ' listings into ' . $post_type );
         foreach ( $items as $item ) {
             $this->save_single( $item, $post_type );
         }
-
         $this->log_entry( 'info', '✅ Import complete.' );
         return $this->log;
     }

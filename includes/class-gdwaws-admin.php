@@ -398,37 +398,29 @@ class GDWAWS_Admin {
         check_ajax_referer( 'gdwaws_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
 
-        // Extend limits for long-running import operations
         @set_time_limit( 300 );
         @ini_set( 'memory_limit', '256M' );
 
         $post_type = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
-        $raw_items = isset( $_POST['items'] ) ? (array) $_POST['items'] : [];
 
-        // Sanitize each item
-        $items = [];
-        foreach ( $raw_items as $item ) {
-            if ( ! is_array( $item ) ) continue;
-            $items[] = [
-                'place_id'          => sanitize_text_field( $item['place_id'] ?? '' ),
-                'name'              => sanitize_text_field( $item['name'] ?? '' ),
-                'description'       => wp_kses_post( $item['description'] ?? '' ),
-                'description_source'=> sanitize_text_field( $item['description_source'] ?? 'edited' ),
-                'address'           => sanitize_text_field( $item['address'] ?? '' ),
-                'address_parsed'    => array_map( 'sanitize_text_field', (array) ( $item['address_parsed'] ?? [] ) ),
-                'phone'             => sanitize_text_field( $item['phone'] ?? '' ),
-                'website'           => esc_url_raw( $item['website'] ?? '' ),
-                'rating'            => sanitize_text_field( $item['rating'] ?? '' ),
-                'lat'               => sanitize_text_field( $item['lat'] ?? '' ),
-                'lng'               => sanitize_text_field( $item['lng'] ?? '' ),
-                'hours'             => array_map( 'sanitize_text_field', (array) ( $item['hours'] ?? [] ) ),
-                'types'             => array_map( 'sanitize_text_field', (array) ( $item['types'] ?? [] ) ),
-                'photos'            => (array) ( $item['photos'] ?? [] ),
+        // Only receive place_ids and any user-edited descriptions — re-fetch everything else
+        $raw_selections = isset( $_POST['selections'] ) ? (array) $_POST['selections'] : [];
+
+        $selections = [];
+        foreach ( $raw_selections as $sel ) {
+            if ( empty( $sel['place_id'] ) ) continue;
+            $selections[ sanitize_text_field( $sel['place_id'] ) ] = [
+                'description'        => wp_kses_post( $sel['description'] ?? '' ),
+                'description_source' => sanitize_text_field( $sel['description_source'] ?? 'google' ),
             ];
         }
 
+        if ( empty( $selections ) ) {
+            wp_send_json_error( [ 'message' => 'No listings selected.' ] );
+        }
+
         $importer = new GDWAWS_Importer();
-        $log      = $importer->import_confirmed( $items, $post_type );
+        $log      = $importer->import_by_place_ids( array_keys( $selections ), $selections, $post_type );
 
         wp_send_json_success( [ 'log' => $log ] );
     }

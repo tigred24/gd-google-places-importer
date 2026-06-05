@@ -141,39 +141,37 @@ jQuery(function ($) {
     // ── Confirm Import ───────────────────────────────────────────
     function doConfirmImport() {
         var post_type = $('#gdwaws-preview-wrap').data('post-type') || 'gd_place';
-        var items = [];
+        var selections = [];
 
-        // Collect checked items with potentially edited descriptions
+        // Collect only place_id + description — re-fetch everything else server-side
         $('.gdwaws-preview-check:checked').each(function () {
-            var place_id = $(this).data('place-id');
-            var p = previewData[place_id];
-            if (!p) return;
+            var place_id   = $(this).data('place-id');
+            var $textarea  = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]');
+            var desc       = $textarea.val();
+            var origSource = $textarea.data('source') || 'google';
+            var p          = previewData[place_id] || {};
+            // Mark as edited only if user changed the text from what was shown
+            var descSource = ( desc !== (p.description || '') ) ? 'edited' : origSource;
 
-            // Pick up any edited description and track if user changed it
-            var $textarea   = $('textarea.gdwaws-desc-edit[data-place-id="' + place_id + '"]');
-            var desc        = $textarea.val();
-            var origSource  = $textarea.data('source') || 'edited';
-            var descSource  = desc !== (p.description || '') ? 'edited' : origSource;
-            var item = $.extend({}, p, { description: desc, description_source: descSource });
-            items.push(item);
+            selections.push({ place_id: place_id, description: desc, description_source: descSource });
         });
 
-        if (items.length === 0) { alert('No items selected.'); return; }
+        if (selections.length === 0) { alert('No items selected.'); return; }
 
         $('#gdwaws-confirm-import, #gdwaws-confirm-import-bottom').prop('disabled', true);
         $('#gdwaws-import-spinner').show();
         $('#gdwaws-log-wrap').show();
-        $('#gdwaws-log').html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' + items.length + ' listings...</span></div>');
+        $('#gdwaws-log').html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">ℹ️ Importing ' + selections.length + ' listings...</span></div>');
 
         $.ajax({
             url: GDWAWS.ajax_url,
             type: 'POST',
             timeout: 300000,
             data: {
-                action:    'gdwaws_confirm_import',
-                nonce:     GDWAWS.nonce,
-                post_type: post_type,
-                items:     items,
+                action:     'gdwaws_confirm_import',
+                nonce:      GDWAWS.nonce,
+                post_type:  post_type,
+                selections: selections,
             },
             success: function (res) {
             $('#gdwaws-import-spinner').hide();

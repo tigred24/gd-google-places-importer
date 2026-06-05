@@ -1,0 +1,29 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# WordPress
+wp-config.php
+
+# Logs
+*.log
+
+# Zip files
+*.zip
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Node
+node_modules/
+
+# Composer
+/vendor/autoload.php
+/vendor/composer/
+
+# Environment
+.env
+.env.local

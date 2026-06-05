@@ -1,4 +1,4 @@
-/* GD WAWS Importer - Admin JS */
+/* GD Google Places Importer - Admin JS */
 jQuery(function ($) {
 
     // ── Run Import ──────────────────────────────────────────────
@@ -43,7 +43,7 @@ jQuery(function ($) {
 
             var entries = res.data.log || [];
             entries.forEach(function (entry) {
-                var cls = 'gdwaws-log-' + entry.type;
+                var cls  = 'gdwaws-log-' + entry.type;
                 var icon = entry.type === 'success' ? '✅' : entry.type === 'error' ? '❌' : entry.type === 'skip' ? '⏭' : 'ℹ️';
                 $log.append(
                     '<div class="gdwaws-log-line">' +
@@ -53,7 +53,6 @@ jQuery(function ($) {
                 );
             });
 
-            // Scroll to bottom
             $log.scrollTop($log[0].scrollHeight);
 
         }).fail(function () {
@@ -127,12 +126,6 @@ jQuery(function ($) {
         });
     });
 
-    // ── Utility ─────────────────────────────────────────────────
-    function escHtml(str) {
-        return $('<div>').text(str || '').html();
-    }
-});
-
     // ── Clear History ────────────────────────────────────────────
     $('#gdwaws-clear-history').on('click', function () {
         $('#gdwaws-clear-confirm').show();
@@ -168,3 +161,9 @@ jQuery(function ($) {
             }
         });
     });
+
+    // ── Utility ─────────────────────────────────────────────────
+    function escHtml(str) {
+        return $('<div>').text(str || '').html();
+    }
+});

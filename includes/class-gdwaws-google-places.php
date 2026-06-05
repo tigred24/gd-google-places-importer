@@ -130,10 +130,23 @@ class GDWAWS_Google_Places {
             $weekday_text = $place['regularOpeningHours']['weekdayDescriptions'];
         }
 
+        // Extract city from structured address components
+        $city = '';
+        if ( ! empty( $place['addressComponents'] ) ) {
+            foreach ( $place['addressComponents'] as $component ) {
+                $types = $component['types'] ?? [];
+                if ( in_array( 'locality', $types ) ) {
+                    $city = $component['longText'] ?? $component['shortText'] ?? '';
+                    break;
+                }
+            }
+        }
+
         return [
             'place_id'              => $place['id'] ?? '',
             'name'                  => $name,
             'formatted_address'     => $address,
+            'city'                  => $city,
             'formatted_phone_number'=> $place['nationalPhoneNumber'] ?? '',
             'website'               => $place['websiteUri'] ?? '',
             'rating'                => $place['rating'] ?? null,

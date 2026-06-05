@@ -36,8 +36,7 @@ class GDWAWS_Importer {
             // City filter
             if ( $city_name ) {
                 $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
-                    $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
-                    return $this->address_matches_city( $address, $city_name );
+                    return $this->address_matches_city( $biz, $city_name );
                 });
                 $businesses = array_values( $businesses );
             }
@@ -447,8 +446,7 @@ class GDWAWS_Importer {
         if ( $city_name ) {
             $before = count( $businesses );
             $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
-                $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
-                return $this->address_matches_city( $address, $city_name );
+                return $this->address_matches_city( $biz, $city_name );
             });
             $businesses = array_values( $businesses );
             $skipped    = $before - count( $businesses );
@@ -590,11 +588,28 @@ class GDWAWS_Importer {
         return null;
     }
 
-    private function address_matches_city( $address, $city_name ) {
-        if ( empty( $address ) || empty( $city_name ) ) return true;
-        $address_lower = strtolower( $address );
-        $city_lower    = strtolower( trim( $city_name ) );
-        return strpos( $address_lower, $city_lower ) !== false;
+    private function address_matches_city( $biz, $city_name ) {
+        if ( empty( $city_name ) ) return true;
+
+        $city_lower = strtolower( trim( $city_name ) );
+
+        // Prefer the structured city field from addressComponents (exact match)
+        if ( ! empty( $biz['city'] ) ) {
+            return strtolower( trim( $biz['city'] ) ) === $city_lower;
+        }
+
+        // Fallback: parse city from formatted address
+        // Format: "123 Main St, Goliad, TX 77963, USA"
+        $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
+        if ( empty( $address ) ) return true;
+
+        $parts = explode( ',', $address );
+        // City is typically the second comma-separated part
+        if ( isset( $parts[1] ) ) {
+            return strtolower( trim( $parts[1] ) ) === $city_lower;
+        }
+
+        return false;
     }
 
     private function format_hours( $hours_array ) {

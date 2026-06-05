@@ -212,27 +212,138 @@ class GDWAWS_Importer {
      */
     private function map_category( $types, $taxonomy = 'gd_placecategory' ) {
         $map = [
-            'restaurant'              => 'Restaurants',
-            'food'                    => 'Restaurants',
-            'bar'                     => 'Bars & Nightlife',
-            'cafe'                    => 'Cafes',
-            'lodging'                 => 'Hotels & Lodging',
-            'store'                   => 'Shopping',
-            'grocery_or_supermarket'  => 'Grocery',
-            'gas_station'             => 'Gas Stations',
-            'gym'                     => 'Health & Fitness',
-            'hair_care'               => 'Beauty & Spas',
-            'health'                  => 'Health & Medical',
-            'doctor'                  => 'Health & Medical',
-            'church'                  => 'Churches',
-            'school'                  => 'Education',
-            'bank'                    => 'Financial Services',
-            'lawyer'                  => 'Legal Services',
-            'real_estate_agency'      => 'Real Estate',
-            'car_repair'              => 'Auto Services',
-            'electrician'             => 'Home Services',
-            'plumber'                 => 'Home Services',
-            'general_contractor'      => 'Home Services',
+            // Food & Drink
+            'restaurant'                => 'Restaurants',
+            'cafe'                      => 'Cafes / Coffee',
+            'bar'                       => 'Bars',
+            'bakery'                    => 'Bakeries',
+            'meal_takeaway'             => 'Takeaway / Fast Food',
+            'meal_delivery'             => 'Food Delivery',
+            'food'                      => 'Restaurants',
+            'night_club'                => 'Night Clubs',
+            'liquor_store'              => 'Liquor Stores',
+
+            // Shopping
+            'store'                     => 'Shopping',
+            'grocery_or_supermarket'    => 'Grocery',
+            'convenience_store'         => 'Convenience Stores',
+            'clothing_store'            => 'Clothing Stores',
+            'shoe_store'                => 'Shoe Stores',
+            'furniture_store'           => 'Furniture Stores',
+            'home_goods_store'          => 'Home Goods',
+            'hardware_store'            => 'Hardware Stores',
+            'electronics_store'         => 'Electronics',
+            'book_store'                => 'Book Stores',
+            'florist'                   => 'Florists',
+            'jewelry_store'             => 'Jewelry Stores',
+            'pet_store'                 => 'Pet Stores',
+            'bicycle_store'             => 'Bicycle Shops',
+            'department_store'          => 'Shopping',
+            'shopping_mall'             => 'Shopping',
+            'pharmacy'                  => 'Pharmacies',
+            'drugstore'                 => 'Pharmacies',
+
+            // Health & Medical
+            'hospital'                  => 'Health & Medical',
+            'doctor'                    => 'Health & Medical',
+            'dentist'                   => 'Dentists',
+            'health'                    => 'Health & Medical',
+            'physiotherapist'           => 'Health & Medical',
+            'veterinary_care'           => 'Veterinary',
+            'gym'                       => 'Health & Fitness',
+            'spa'                       => 'Beauty & Spas',
+
+            // Beauty
+            'hair_care'                 => 'Beauty & Spas',
+            'beauty_salon'              => 'Beauty & Spas',
+            'nail_salon'                => 'Beauty & Spas',
+
+            // Automotive
+            'car_dealer'                => 'Auto Services',
+            'car_repair'                => 'Auto Services',
+            'car_wash'                  => 'Auto Services',
+            'gas_station'               => 'Gas Stations',
+            'parking'                   => 'Parking',
+
+            // Home Services
+            'electrician'               => 'Home Services',
+            'plumber'                   => 'Home Services',
+            'painter'                   => 'Home Services',
+            'general_contractor'        => 'Home Services',
+            'roofing_contractor'        => 'Home Services',
+            'moving_company'            => 'Home Services',
+            'storage'                   => 'Storage',
+            'locksmith'                 => 'Home Services',
+
+            // Professional Services
+            'lawyer'                    => 'Legal Services',
+            'accounting'                => 'Financial Services',
+            'insurance_agency'          => 'Insurance',
+            'real_estate_agency'        => 'Real Estate',
+            'travel_agency'             => 'Travel',
+            'employment_agency'         => 'Employment',
+
+            // Financial
+            'bank'                      => 'Financial Services',
+            'atm'                       => 'Financial Services',
+            'finance'                   => 'Financial Services',
+
+            // Education
+            'school'                    => 'Education',
+            'university'                => 'Education',
+            'library'                   => 'Libraries',
+            'primary_school'            => 'Education',
+            'secondary_school'          => 'Education',
+
+            // Religion & Community
+            'church'                    => 'Churches',
+            'mosque'                    => 'Places of Worship',
+            'synagogue'                 => 'Places of Worship',
+            'hindu_temple'              => 'Places of Worship',
+            'cemetery'                  => 'Cemeteries',
+            'community_center'          => 'Community Centers',
+
+            // Government & Civic
+            'city_hall'                 => 'Government',
+            'local_government_office'   => 'Government',
+            'courthouse'                => 'Government',
+            'post_office'               => 'Government',
+            'fire_station'              => 'Emergency Services',
+            'police'                    => 'Emergency Services',
+            'embassy'                   => 'Government',
+
+            // Lodging
+            'lodging'                   => 'Hotels & Lodging',
+            'campground'                => 'Campgrounds & RV Parks',
+            'rv_park'                   => 'Campgrounds & RV Parks',
+
+            // Arts, Culture & Entertainment
+            'museum'                    => 'Museums',
+            'art_gallery'               => 'Arts & Culture',
+            'tourist_attraction'        => 'Tourist Attractions',
+            'historical_landmark'       => 'Historical Landmarks',
+            'movie_theater'             => 'Entertainment',
+            'performing_arts_theater'   => 'Entertainment',
+            'amusement_park'            => 'Entertainment',
+            'bowling_alley'             => 'Entertainment',
+            'casino'                    => 'Entertainment',
+            'stadium'                   => 'Sports & Recreation',
+            'zoo'                       => 'Tourist Attractions',
+
+            // Outdoors & Recreation
+            'park'                      => 'Parks & Recreation',
+            'natural_feature'           => 'Parks & Recreation',
+            'golf_course'               => 'Sports & Recreation',
+
+            // Transportation
+            'airport'                   => 'Transportation',
+            'bus_station'               => 'Transportation',
+            'train_station'             => 'Transportation',
+            'transit_station'           => 'Transportation',
+            'taxi_stand'                => 'Transportation',
+
+            // Funeral
+            'funeral_home'              => 'Funeral Homes',
         ];
 
         foreach ( $types as $type ) {

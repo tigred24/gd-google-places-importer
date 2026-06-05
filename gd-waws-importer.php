@@ -3,7 +3,7 @@
  * Plugin Name:       GD Google Places Importer
  * Plugin URI:        https://github.com/tigred24/gd-google-places-importer
  * Description:       Import business listings from Google Places API with AI-generated descriptions via Claude.
- * Version:           1.1.1
+ * Version:           1.1.2
  * Author:            We Are Web Services
  * Author URI:        https://wearewebservices.com
  * License:           GPL2
@@ -13,7 +13,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'GDWAWS_VERSION', '1.1.1' );
+define( 'GDWAWS_VERSION', '1.1.2' );
 define( 'GDWAWS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GDWAWS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

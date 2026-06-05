@@ -15,10 +15,18 @@ class GDWAWS_Importer {
     /**
      * Run a full import for a region + type.
      */
-    public function run( $region, $type = 'establishment', $radius = 8000 ) {
+    public function run( $region, $type = 'establishment', $radius = 8000, $city_filter = '' ) {
         $this->log = [];
 
-        $this->log_entry( 'info', "Starting import for: {$region} / {$type} / radius: " . ($radius/1000) . "km" );
+        // Extract city name from region string for filtering (e.g. "Goliad, TX" → "Goliad")
+        $city_name = '';
+        if ( $city_filter ) {
+            $parts     = explode( ',', $region );
+            $city_name = trim( $parts[0] );
+        }
+
+        $filter_msg = $city_name ? " / filtering to city: {$city_name}" : '';
+        $this->log_entry( 'info', "Starting import for: {$region} / {$type} / radius: " . ( $radius / 1000 ) . "km{$filter_msg}" );
 
         // 1. Fetch businesses from Google
         $businesses = $this->places_api->nearby_search( $region, $type, $radius );
@@ -28,6 +36,21 @@ class GDWAWS_Importer {
         }
 
         $this->log_entry( 'info', count( $businesses ) . ' businesses found.' );
+
+        // 2. Filter by city if enabled
+        if ( $city_name ) {
+            $before = count( $businesses );
+            $businesses = array_filter( $businesses, function( $biz ) use ( $city_name ) {
+                $address = $biz['formatted_address'] ?? $biz['formattedAddress'] ?? '';
+                return $this->address_matches_city( $address, $city_name );
+            });
+            $businesses = array_values( $businesses );
+            $skipped = $before - count( $businesses );
+            if ( $skipped > 0 ) {
+                $this->log_entry( 'info', "{$skipped} businesses outside {$city_name} filtered out." );
+            }
+            $this->log_entry( 'info', count( $businesses ) . ' businesses match city filter.' );
+        }
 
         foreach ( $businesses as $biz ) {
             $this->import_single( $biz );
@@ -186,6 +209,34 @@ class GDWAWS_Importer {
      */
     private function format_hours( $hours_array ) {
         return implode( "\n", $hours_array );
+    }
+
+    /**
+     * Check if a formatted address contains the target city name.
+     * Uses loose matching to handle variations like "Goliad" vs "Goliad County".
+     */
+    private function address_matches_city( $address, $city_name ) {
+        if ( empty( $address ) || empty( $city_name ) ) return true;
+
+        // Normalize both strings — lowercase, remove punctuation
+        $address_lower   = strtolower( $address );
+        $city_lower      = strtolower( trim( $city_name ) );
+
+        // Direct match — city name appears in address
+        if ( strpos( $address_lower, $city_lower ) !== false ) {
+            return true;
+        }
+
+        // Try matching just the first word of the city (e.g. "Fort" from "Fort Worth")
+        $city_parts = explode( ' ', $city_lower );
+        if ( count( $city_parts ) > 1 ) {
+            $full_city = implode( ' ', $city_parts );
+            if ( strpos( $address_lower, $full_city ) !== false ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

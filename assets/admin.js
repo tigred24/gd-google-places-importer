@@ -3,10 +3,11 @@ jQuery(function ($) {
 
     // ── Run Import ──────────────────────────────────────────────
     $('#gdwaws-run-import').on('click', function () {
-        var region = $('#gdwaws_region').val().trim();
-        var type   = $('#gdwaws_type').val();
-        var limit  = $('#gdwaws_limit').val();
-        var radius = $('#gdwaws_radius').val();
+        var region      = $('#gdwaws_region').val().trim();
+        var type        = $('#gdwaws_type').val();
+        var limit       = $('#gdwaws_limit').val();
+        var radius      = $('#gdwaws_radius').val();
+        var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
 
         if (!region) {
             alert('Please enter a region/location.');
@@ -24,12 +25,13 @@ jQuery(function ($) {
         $log.html('<div class="gdwaws-log-line"><span class="gdwaws-log-info">Starting import for: ' + escHtml(region) + ' / ' + escHtml(type) + '...</span></div>');
 
         $.post(GDWAWS.ajax_url, {
-            action:  'gdwaws_run_import',
-            nonce:   GDWAWS.nonce,
-            region:  region,
-            type:    type,
-            limit:   limit,
-            radius:  radius,
+            action:      'gdwaws_run_import',
+            nonce:       GDWAWS.nonce,
+            region:      region,
+            type:        type,
+            limit:       limit,
+            radius:      radius,
+            city_filter: city_filter,
         }, function (res) {
             $btn.prop('disabled', false);
             $spinner.hide();

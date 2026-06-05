@@ -113,6 +113,16 @@ class GDWAWS_Admin {
                             <p class="description">Larger radius = more results but may include businesses outside your target area.</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th>City Filter</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="gdwaws_city_filter" value="1" checked />
+                                Only import businesses located in the city entered above
+                            </label>
+                            <p class="description">When checked, results from surrounding areas outside your city will be skipped. Uncheck to import everything within the radius regardless of city.</p>
+                        </td>
+                    </tr>
                 </table>
 
                 <div class="gdwaws-actions">
@@ -263,16 +273,17 @@ class GDWAWS_Admin {
         check_ajax_referer( 'gdwaws_nonce', 'nonce' );
         if ( ! current_user_can( 'manage_options' ) ) wp_die( 'Unauthorized' );
 
-        $region = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
-        $type   = sanitize_text_field( $_POST['type'] ?? 'establishment' );
-        $limit  = intval( $_POST['limit'] ?? 20 );
-        $radius = intval( $_POST['radius'] ?? 8000 );
+        $region      = sanitize_text_field( $_POST['region'] ?? 'Goliad, TX' );
+        $type        = sanitize_text_field( $_POST['type'] ?? 'establishment' );
+        $limit       = intval( $_POST['limit'] ?? 20 );
+        $radius      = intval( $_POST['radius'] ?? 8000 );
+        $city_filter = ! empty( $_POST['city_filter'] ) ? sanitize_text_field( $_POST['city_filter'] ) : '';
 
         GDWAWS_Settings::set( 'import_limit', $limit );
         GDWAWS_Settings::set( 'search_radius', $radius );
 
         $importer = new GDWAWS_Importer();
-        $log      = $importer->run( $region, $type, $radius );
+        $log      = $importer->run( $region, $type, $radius, $city_filter );
 
         wp_send_json_success( [ 'log' => $log ] );
     }

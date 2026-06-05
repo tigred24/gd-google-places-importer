@@ -19,18 +19,18 @@ class GDWAWS_Importer {
     /**
      * Preview import across multiple categories. Returns enriched business data.
      */
-    public function preview_multi( $region, $categories, $radius = 8000, $city_filter = '', $post_type = 'gd_place' ) {
+    public function preview_multi( $region, $categories, $city_filter = '', $post_type = 'gd_place' ) {
         $city_name = '';
         if ( $city_filter ) {
             $parts     = explode( ',', $region );
             $city_name = trim( $parts[0] );
         }
 
-        $seen      = [];
-        $previews  = [];
+        $seen     = [];
+        $previews = [];
 
         foreach ( $categories as $category ) {
-            $businesses = $this->places_api->nearby_search( $region, $category, $radius );
+            $businesses = $this->places_api->text_search( $region, $category );
             if ( is_wp_error( $businesses ) ) continue;
 
             // City filter

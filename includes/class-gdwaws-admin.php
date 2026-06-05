@@ -46,7 +46,6 @@ class GDWAWS_Admin {
         $place_types    = GDWAWS_Settings::google_place_types();
         $default_region = GDWAWS_Settings::get( 'default_region', 'Goliad, TX' );
         $import_limit   = GDWAWS_Settings::get( 'import_limit', 20 );
-        $default_radius = GDWAWS_Settings::get( 'search_radius', 8000 );
         $default_pt     = GDWAWS_Settings::get( 'geodir_post_type', 'gd_place' );
 
         // Get all GeoDirectory custom post types — try multiple methods
@@ -118,7 +117,7 @@ class GDWAWS_Admin {
                         <th><label for="gdwaws_region">Region / Location</label></th>
                         <td>
                             <input type="text" id="gdwaws_region" class="regular-text" value="<?php echo esc_attr( $default_region ); ?>" placeholder="e.g. Goliad, TX" />
-                            <p class="description">City, address, or area to search within the selected radius</p>
+                            <p class="description">Enter a city and state (e.g. <code>Goliad, TX</code>). Google will search for matching businesses in that city.</p>
                         </td>
                     </tr>
                     <tr>
@@ -157,29 +156,7 @@ class GDWAWS_Admin {
                         <th><label for="gdwaws_limit">Max Listings</label></th>
                         <td>
                             <input type="number" id="gdwaws_limit" class="small-text" value="<?php echo esc_attr( $import_limit ); ?>" min="1" max="60" />
-                            <p class="description">Max per category per run (Google Places limit is 60 per search)</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="gdwaws_radius">Search Radius</label></th>
-                        <td>
-                            <select id="gdwaws_radius">
-                                <?php
-                                $radii = [
-                                    1000  => '1 km (~0.6 miles) — Single neighborhood',
-                                    2000  => '2 km (~1.2 miles) — Small area',
-                                    5000  => '5 km (~3 miles) — Small town',
-                                    8000  => '8 km (~5 miles) — Default',
-                                    15000 => '15 km (~9 miles) — Large town',
-                                    25000 => '25 km (~15 miles) — County area',
-                                    50000 => '50 km (~31 miles) — Wide region',
-                                ];
-                                foreach ( $radii as $meters => $label ) :
-                                ?>
-                                    <option value="<?php echo $meters; ?>" <?php selected( $meters, $default_radius ); ?>><?php echo esc_html( $label ); ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description">Larger radius = more results but may include businesses outside your target area.</p>
+                            <p class="description">Max listings per category (Google returns up to 60 across 3 pages).</p>
                         </td>
                     </tr>
                     <tr>
@@ -187,9 +164,9 @@ class GDWAWS_Admin {
                         <td>
                             <label>
                                 <input type="checkbox" id="gdwaws_city_filter" value="1" checked />
-                                Only import businesses located in the city entered above
+                                Only import businesses with the city name in their address
                             </label>
-                            <p class="description">When checked, results outside your city will be skipped.</p>
+                            <p class="description">Filters out any results Google returns that are outside your target city.</p>
                         </td>
                     </tr>
                 </table>
@@ -412,15 +389,13 @@ class GDWAWS_Admin {
         $post_type   = sanitize_text_field( $_POST['post_type'] ?? 'gd_place' );
         $categories  = isset( $_POST['categories'] ) ? array_map( 'sanitize_text_field', (array) $_POST['categories'] ) : [ 'establishment' ];
         $limit       = intval( $_POST['limit'] ?? 20 );
-        $radius      = intval( $_POST['radius'] ?? 8000 );
         $city_filter = sanitize_text_field( $_POST['city_filter'] ?? '' );
 
         GDWAWS_Settings::set( 'import_limit', $limit );
-        GDWAWS_Settings::set( 'search_radius', $radius );
         GDWAWS_Settings::set( 'geodir_post_type', $post_type );
 
         $importer = new GDWAWS_Importer();
-        $previews = $importer->preview_multi( $region, $categories, $radius, $city_filter, $post_type );
+        $previews = $importer->preview_multi( $region, $categories, $city_filter, $post_type );
 
         wp_send_json_success( [ 'previews' => $previews ] );
     }
@@ -528,8 +503,8 @@ class GDWAWS_Admin {
 
         $loc = $geo_body['results'][0]['geometry']['location'];
 
-        // Test new Places API nearby search
-        $places_resp = wp_remote_post( 'https://places.googleapis.com/v1/places:searchNearby', [
+        // Test new Places API text search
+        $places_resp = wp_remote_post( 'https://places.googleapis.com/v1/places:searchText', [
             'timeout' => 10,
             'headers' => [
                 'Content-Type'     => 'application/json',
@@ -537,12 +512,7 @@ class GDWAWS_Admin {
                 'X-Goog-FieldMask' => 'places.id,places.displayName',
             ],
             'body' => json_encode([
-                'locationRestriction' => [
-                    'circle' => [
-                        'center' => [ 'latitude' => $loc['lat'], 'longitude' => $loc['lng'] ],
-                        'radius' => 5000.0,
-                    ],
-                ],
+                'textQuery'      => 'businesses in Goliad, TX',
                 'maxResultCount' => 1,
             ]),
         ]);
@@ -554,11 +524,11 @@ class GDWAWS_Admin {
         $places_body = json_decode( wp_remote_retrieve_body( $places_resp ), true );
 
         if ( isset( $places_body['error'] ) ) {
-            wp_send_json_error( [ 'message' => 'New Places API: ' . $places_body['error']['message'] ] );
+            wp_send_json_error( [ 'message' => 'Places API: ' . $places_body['error']['message'] ] );
         }
 
         $count = count( $places_body['places'] ?? [] );
-        wp_send_json_success( [ 'message' => '✅ Google APIs connected! Geocoded Goliad, TX → ' . $loc['lat'] . ', ' . $loc['lng'] . '. Found ' . $count . ' nearby place(s).' ] );
+        wp_send_json_success( [ 'message' => '✅ Google APIs connected! Text Search found ' . $count . ' result(s) for Goliad, TX.' ] );
     }
 
     public function ajax_test_claude() {

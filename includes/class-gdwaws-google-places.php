@@ -22,45 +22,41 @@ class GDWAWS_Google_Places {
     }
 
     /**
-     * Search for businesses near a location by type using New Places API.
+     * Search for businesses by text query using New Places API Text Search.
+     * e.g. "restaurants in Goliad, TX"
+     * Paginates automatically up to 3 pages (max 60 results).
      */
-    public function nearby_search( $location, $type = 'establishment', $radius = 8000 ) {
+    public function text_search( $location, $type = 'establishment' ) {
         if ( empty( $this->api_key ) ) {
             return new WP_Error( 'no_api_key', 'Google API key not set.' );
         }
 
-        $coords = $this->geocode( $location );
-        if ( is_wp_error( $coords ) ) return $coords;
+        // Build a natural language query: "restaurants in Goliad, TX"
+        if ( $type && $type !== 'establishment' ) {
+            $type_label = GDWAWS_Settings::google_place_types()[ $type ] ?? $type;
+            $query      = $type_label . ' in ' . $location;
+        } else {
+            $query = 'businesses in ' . $location;
+        }
 
-        $limit     = intval( GDWAWS_Settings::get( 'import_limit', 20 ) );
-        $results   = [];
+        $field_mask = 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus,places.rating,places.userRatingCount,places.regularOpeningHours,places.nationalPhoneNumber,places.websiteUri,places.editorialSummary,places.addressComponents';
+
+        $results    = [];
         $page_token = null;
-        $pages     = 0;
+        $pages      = 0;
 
         do {
             $body = [
-                'locationRestriction' => [
-                    'circle' => [
-                        'center' => [ 'latitude' => $coords['lat'], 'longitude' => $coords['lng'] ],
-                        'radius' => (float) $radius,
-                    ],
-                ],
-                'maxResultCount' => min( 20, $limit - count( $results ) ),
+                'textQuery'      => $query,
+                'maxResultCount' => 20,
             ];
-
-            // Map old-style type to new includedTypes
-            if ( $type && $type !== 'establishment' ) {
-                $body['includedTypes'] = [ $type ];
-            }
 
             if ( $page_token ) {
                 $body['pageToken'] = $page_token;
             }
 
-            $field_mask = 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.businessStatus,places.rating,places.userRatingCount,places.regularOpeningHours,places.nationalPhoneNumber,places.websiteUri,places.editorialSummary,places.addressComponents';
-
-            $response = wp_remote_post( $this->base . '/places:searchNearby', [
-                'timeout' => 15,
+            $response = wp_remote_post( $this->base . '/places:searchText', [
+                'timeout' => 20,
                 'headers' => $this->headers( $field_mask ),
                 'body'    => json_encode( $body ),
             ]);
@@ -80,9 +76,20 @@ class GDWAWS_Google_Places {
             $page_token = $data['nextPageToken'] ?? null;
             $pages++;
 
-        } while ( $page_token && count( $results ) < $limit && $pages < 3 );
+            // Small delay between paginated requests as required by Google
+            if ( $page_token ) sleep( 2 );
 
-        return array_slice( $results, 0, $limit );
+        } while ( $page_token && $pages < 3 );
+
+        // Normalize all results to internal format
+        return array_map( [ $this, 'normalize' ], $results );
+    }
+
+    /**
+     * Keep nearby_search as an alias for backwards compatibility.
+     */
+    public function nearby_search( $location, $type = 'establishment', $radius = 8000 ) {
+        return $this->text_search( $location, $type );
     }
 
     /**

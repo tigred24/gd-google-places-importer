@@ -16,7 +16,6 @@ jQuery(function ($) {
         var region      = $('#gdwaws_region').val().trim();
         var post_type   = $('#gdwaws_post_type').val();
         var limit       = $('#gdwaws_limit').val();
-        var radius      = $('#gdwaws_radius').val();
         var city_filter = $('#gdwaws_city_filter').is(':checked') ? '1' : '';
         var categories  = [];
         $('.gdwaws-cat-check:checked').each(function () { categories.push($(this).val()); });
@@ -36,7 +35,7 @@ jQuery(function ($) {
             nonce: GDWAWS.nonce,
             region: region, post_type: post_type,
             categories: categories, limit: limit,
-            radius: radius, city_filter: city_filter,
+            city_filter: city_filter,
         }, function (res) {
             $btn.prop('disabled', false);
             $('#gdwaws-spinner').hide();

@@ -221,7 +221,7 @@ class GDWAWS_Importer {
             return;
         }
 
-        // Save GeoDirectory meta
+        // Save GeoDirectory structured fields
         $lat = $details['geometry']['location']['lat'] ?? '';
         $lng = $details['geometry']['location']['lng'] ?? '';
 
@@ -242,29 +242,11 @@ class GDWAWS_Importer {
             'featured_image' => '',
         ];
 
-        // Try GeoDirectory's own save function first
-        $this->save_geodir_fields( $post_id, $post_type, $geodir_data, $lat, $lng );
+        $this->save_geodir_fields( $post_id, $post_type, $geodir_data );
 
-        // Also save as standard post meta as fallback
-        $meta = [
-            'geodir_location'  => $details['formatted_address'] ?? '',
-            'geodir_address'   => $address['street'] ?? '',
-            'geodir_city'      => $address['city'] ?? '',
-            'geodir_region'    => $address['state'] ?? '',
-            'geodir_zip'       => $address['zip'] ?? '',
-            'geodir_country'   => 'US',
-            'geodir_latitude'  => $lat,
-            'geodir_longitude' => $lng,
-            'geodir_phone'     => sanitize_text_field( $details['formatted_phone_number'] ?? '' ),
-            'geodir_website'   => esc_url_raw( $details['website'] ?? '' ),
-            'geodir_timing'    => $this->format_hours( $details['opening_hours']['weekday_text'] ?? [] ),
-            'gdwaws_place_id'  => $place_id,
-            'gdwaws_rating'    => sanitize_text_field( (string) ( $details['rating'] ?? '' ) ),
-        ];
-
-        foreach ( $meta as $key => $value ) {
-            update_post_meta( $post_id, $key, $value );
-        }
+        // Store plugin-specific tracking meta only
+        update_post_meta( $post_id, 'gdwaws_place_id', $place_id );
+        update_post_meta( $post_id, 'gdwaws_rating', sanitize_text_field( (string) ( $details['rating'] ?? '' ) ) );
 
         // Featured image
         $photos = $details['photos'] ?? [];
@@ -369,10 +351,10 @@ class GDWAWS_Importer {
         $geodir_data = [
             'post_id'   => $post_id,
             'post_type' => $post_type,
-            'street'    => $address['street'] ?? '',
-            'city'      => $address['city'] ?? '',
-            'region'    => $address['state'] ?? '',
-            'zip'       => $address['zip'] ?? '',
+            'street'    => sanitize_text_field( $address['street'] ?? '' ),
+            'city'      => sanitize_text_field( $address['city'] ?? '' ),
+            'region'    => sanitize_text_field( $address['state'] ?? '' ),
+            'zip'       => sanitize_text_field( $address['zip'] ?? '' ),
             'country'   => 'US',
             'latitude'  => (float) $lat,
             'longitude' => (float) $lng,
@@ -381,28 +363,11 @@ class GDWAWS_Importer {
             'timing'    => $this->format_hours( $item['hours'] ?? [] ),
         ];
 
-        $this->save_geodir_fields( $post_id, $post_type, $geodir_data, $lat, $lng );
+        $this->save_geodir_fields( $post_id, $post_type, $geodir_data );
 
-        // Also save as standard post meta
-        $meta = [
-            'geodir_location'  => $item['address'] ?? '',
-            'geodir_address'   => $address['street'] ?? '',
-            'geodir_city'      => $address['city'] ?? '',
-            'geodir_region'    => $address['state'] ?? '',
-            'geodir_zip'       => $address['zip'] ?? '',
-            'geodir_country'   => 'US',
-            'geodir_latitude'  => $lat,
-            'geodir_longitude' => $lng,
-            'geodir_phone'     => sanitize_text_field( $item['phone'] ?? '' ),
-            'geodir_website'   => esc_url_raw( $item['website'] ?? '' ),
-            'geodir_timing'    => $this->format_hours( $item['hours'] ?? [] ),
-            'gdwaws_place_id'  => $place_id,
-            'gdwaws_rating'    => sanitize_text_field( $item['rating'] ?? '' ),
-        ];
-
-        foreach ( $meta as $key => $value ) {
-            update_post_meta( $post_id, $key, $value );
-        }
+        // Store plugin-specific tracking meta only
+        update_post_meta( $post_id, 'gdwaws_place_id', $place_id );
+        update_post_meta( $post_id, 'gdwaws_rating', sanitize_text_field( $item['rating'] ?? '' ) );
 
         // Featured image
         $photos = $item['photos'] ?? [];
@@ -514,13 +479,14 @@ class GDWAWS_Importer {
     // ─────────────────────────────────────────────────────────────
 
     /**
-     * Save data into GeoDirectory's structured fields using its own API.
-     * GeoDirectory stores fields in a custom table AND post meta.
+     * Save data into GeoDirectory's structured fields.
+     * Uses geodir_save_post_info() if available, otherwise writes directly
+     * to the post type's detail table.
      */
-    private function save_geodir_fields( $post_id, $post_type, $data, $lat, $lng ) {
+    private function save_geodir_fields( $post_id, $post_type, $data ) {
         global $wpdb;
 
-        // Method 1: Use GeoDirectory's own save post function if available
+        // Method 1: GeoDirectory's own API (preferred)
         if ( function_exists( 'geodir_save_post_info' ) ) {
             $gd_post_data = array_merge( $data, [
                 'ID'        => $post_id,
@@ -530,33 +496,27 @@ class GDWAWS_Importer {
             return;
         }
 
-        // Method 2: Write directly to GeoDirectory's detail table
+        // Method 2: Write directly to the detail table
         $table = $wpdb->prefix . 'geodir_' . $post_type . '_detail';
-
-        // Check if table exists
-        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
-            // Try generic places table
-            $table = $wpdb->prefix . 'geodir_gd_place_detail';
-            if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
-                return; // Table doesn't exist, fall back to post meta only
-            }
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+            return; // Table not found — GeoDirectory not active or post type not registered
         }
-
-        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM $table WHERE post_id = %d", $post_id ) );
 
         $row = [
             'post_id'   => $post_id,
-            'street'    => $data['street'],
-            'city'      => $data['city'],
-            'region'    => $data['region'],
-            'zip'       => $data['zip'],
-            'country'   => $data['country'],
-            'latitude'  => $lat,
-            'longitude' => $lng,
-            'phone'     => $data['phone'],
-            'website'   => $data['website'],
-            'timing'    => $data['timing'],
+            'street'    => $data['street']    ?? '',
+            'city'      => $data['city']      ?? '',
+            'region'    => $data['region']    ?? '',
+            'zip'       => $data['zip']       ?? '',
+            'country'   => $data['country']   ?? 'US',
+            'latitude'  => $data['latitude']  ?? 0,
+            'longitude' => $data['longitude'] ?? 0,
+            'phone'     => $data['phone']     ?? '',
+            'website'   => $data['website']   ?? '',
+            'timing'    => $data['timing']    ?? '',
         ];
+
+        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM $table WHERE post_id = %d", $post_id ) );
 
         if ( $existing ) {
             $wpdb->update( $table, $row, [ 'post_id' => $post_id ] );

@@ -165,7 +165,7 @@ class GDWAWS_Admin {
 
                 <div class="gdwaws-actions">
                     <button id="gdwaws-preview-import" class="button button-primary button-hero">
-                        🔍 Preview Import
+                        🔍 Import & Preview
                     </button>
                     <span id="gdwaws-spinner" class="gdwaws-spinner" style="display:none;">⏳ Fetching from Google...</span>
                 </div>

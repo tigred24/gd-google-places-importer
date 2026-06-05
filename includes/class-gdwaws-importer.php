@@ -225,6 +225,27 @@ class GDWAWS_Importer {
         $lat = $details['geometry']['location']['lat'] ?? '';
         $lng = $details['geometry']['location']['lng'] ?? '';
 
+        $geodir_data = [
+            'post_id'        => $post_id,
+            'post_title'     => sanitize_text_field( $name ),
+            'post_type'      => $post_type,
+            'street'         => sanitize_text_field( $address['street'] ?? '' ),
+            'city'           => sanitize_text_field( $address['city'] ?? '' ),
+            'region'         => sanitize_text_field( $address['state'] ?? '' ),
+            'zip'            => sanitize_text_field( $address['zip'] ?? '' ),
+            'country'        => 'US',
+            'latitude'       => (float) $lat,
+            'longitude'      => (float) $lng,
+            'phone'          => sanitize_text_field( $details['formatted_phone_number'] ?? '' ),
+            'website'        => esc_url_raw( $details['website'] ?? '' ),
+            'timing'         => $this->format_hours( $details['opening_hours']['weekday_text'] ?? [] ),
+            'featured_image' => '',
+        ];
+
+        // Try GeoDirectory's own save function first
+        $this->save_geodir_fields( $post_id, $post_type, $geodir_data, $lat, $lng );
+
+        // Also save as standard post meta as fallback
         $meta = [
             'geodir_location'  => $details['formatted_address'] ?? '',
             'geodir_address'   => $address['street'] ?? '',
@@ -341,7 +362,28 @@ class GDWAWS_Importer {
             return;
         }
 
-        // Save GeoDirectory meta
+        // Save GeoDirectory structured fields
+        $lat = $item['lat'] ?? '';
+        $lng = $item['lng'] ?? '';
+
+        $geodir_data = [
+            'post_id'   => $post_id,
+            'post_type' => $post_type,
+            'street'    => $address['street'] ?? '',
+            'city'      => $address['city'] ?? '',
+            'region'    => $address['state'] ?? '',
+            'zip'       => $address['zip'] ?? '',
+            'country'   => 'US',
+            'latitude'  => (float) $lat,
+            'longitude' => (float) $lng,
+            'phone'     => sanitize_text_field( $item['phone'] ?? '' ),
+            'website'   => esc_url_raw( $item['website'] ?? '' ),
+            'timing'    => $this->format_hours( $item['hours'] ?? [] ),
+        ];
+
+        $this->save_geodir_fields( $post_id, $post_type, $geodir_data, $lat, $lng );
+
+        // Also save as standard post meta
         $meta = [
             'geodir_location'  => $item['address'] ?? '',
             'geodir_address'   => $address['street'] ?? '',
@@ -349,8 +391,8 @@ class GDWAWS_Importer {
             'geodir_region'    => $address['state'] ?? '',
             'geodir_zip'       => $address['zip'] ?? '',
             'geodir_country'   => 'US',
-            'geodir_latitude'  => $item['lat'] ?? '',
-            'geodir_longitude' => $item['lng'] ?? '',
+            'geodir_latitude'  => $lat,
+            'geodir_longitude' => $lng,
             'geodir_phone'     => sanitize_text_field( $item['phone'] ?? '' ),
             'geodir_website'   => esc_url_raw( $item['website'] ?? '' ),
             'geodir_timing'    => $this->format_hours( $item['hours'] ?? [] ),
@@ -470,6 +512,58 @@ class GDWAWS_Importer {
     // ─────────────────────────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Save data into GeoDirectory's structured fields using its own API.
+     * GeoDirectory stores fields in a custom table AND post meta.
+     */
+    private function save_geodir_fields( $post_id, $post_type, $data, $lat, $lng ) {
+        global $wpdb;
+
+        // Method 1: Use GeoDirectory's own save post function if available
+        if ( function_exists( 'geodir_save_post_info' ) ) {
+            $gd_post_data = array_merge( $data, [
+                'ID'        => $post_id,
+                'post_type' => $post_type,
+            ]);
+            @geodir_save_post_info( $post_id, (object) $gd_post_data );
+            return;
+        }
+
+        // Method 2: Write directly to GeoDirectory's detail table
+        $table = $wpdb->prefix . 'geodir_' . $post_type . '_detail';
+
+        // Check if table exists
+        if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+            // Try generic places table
+            $table = $wpdb->prefix . 'geodir_gd_place_detail';
+            if ( $wpdb->get_var( "SHOW TABLES LIKE '$table'" ) !== $table ) {
+                return; // Table doesn't exist, fall back to post meta only
+            }
+        }
+
+        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM $table WHERE post_id = %d", $post_id ) );
+
+        $row = [
+            'post_id'   => $post_id,
+            'street'    => $data['street'],
+            'city'      => $data['city'],
+            'region'    => $data['region'],
+            'zip'       => $data['zip'],
+            'country'   => $data['country'],
+            'latitude'  => $lat,
+            'longitude' => $lng,
+            'phone'     => $data['phone'],
+            'website'   => $data['website'],
+            'timing'    => $data['timing'],
+        ];
+
+        if ( $existing ) {
+            $wpdb->update( $table, $row, [ 'post_id' => $post_id ] );
+        } else {
+            $wpdb->insert( $table, $row );
+        }
+    }
 
     private function map_category( $types, $taxonomy = 'gd_placecategory' ) {
         $map = [

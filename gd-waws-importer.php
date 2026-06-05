@@ -17,6 +17,16 @@ define( 'GDWAWS_VERSION', '1.0.0' );
 define( 'GDWAWS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'GDWAWS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
+// Auto-update from GitHub
+require_once GDWAWS_PLUGIN_DIR . 'vendor/plugin-update-checker/load-v5p7.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+$update_checker = PucFactory::buildUpdateChecker(
+    'https://github.com/tigred24/gd-google-places-importer/',
+    __FILE__,
+    'gd-google-places-importer'
+);
+$update_checker->setBranch( 'main' );
+
 require_once GDWAWS_PLUGIN_DIR . 'includes/class-gdwaws-settings.php';
 require_once GDWAWS_PLUGIN_DIR . 'includes/class-gdwaws-google-places.php';
 require_once GDWAWS_PLUGIN_DIR . 'includes/class-gdwaws-claude.php';
